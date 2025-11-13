@@ -105,7 +105,7 @@ class EllipseFit:
             if hasattr(p, 'x') and hasattr(p, 'y'):
                 x_coords[i] = p.x
                 y_coords[i] = p.y
-            elif isinstance(p, (tuple, list)) and len(p) >= 2:
+            elif isinstance(p, (tuple, list, np.ndarray)) and len(p) >= 2:
                 x_coords[i] = p[0]
                 y_coords[i] = p[1]
             else:
