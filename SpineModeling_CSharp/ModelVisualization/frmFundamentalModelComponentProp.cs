@@ -2000,12 +2000,32 @@ namespace SpineAnalyzer.ModelVisualization
 
         private void btnSetEndplateRefPlane_Click_1(object sender, EventArgs e)
         {
-           
+            // TODO: Initialize and activate the endplate reference plane widget
+            // Based on similar implementations at lines 3926-3945 and 4089-4108, this should:
+            // 1. Set up vtkBoxWidget2 properties (rotation enabled, translation/scaling disabled)
+            // 2. Set the actor to manipulate (endplateAxesActor)
+            // 3. Configure widget appearance (handles off, wires off, etc.)
+            // 4. Attach ExecuteHandleEndplate event handler
+            // 5. Place widget and turn it on (vtkBoxWidget2.On())
+            // 6. Update UI to show endplate reference plane editing mode
+
+            MessageBox.Show("Endplate reference plane setup is not yet fully implemented. " +
+                "Please see TODO comments in source code for implementation details.",
+                "Feature Not Implemented", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void btnDoneEndplateRef_Click(object sender, EventArgs e)
         {
-            
+            // TODO: Finalize endplate reference plane setup
+            // Based on similar implementations at lines 3952-3953 and 4123-4124, this should:
+            // 1. Turn off the vtkBoxWidget2 (vtkBoxWidget2.Off())
+            // 2. Save the endplate axes transform: endplateAxesTransform = (vtkTransform)endplateAxesActor.GetUserTransform()
+            // 3. Update UI to exit endplate reference plane editing mode
+            // 4. Possibly transition to next workflow step
+
+            MessageBox.Show("Endplate reference plane finalization is not yet fully implemented. " +
+                "Please see TODO comments in source code for implementation details.",
+                "Feature Not Implemented", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         public void ExecuteHandleEndplate(vtkObject sender, vtkObjectEventArgs e)
@@ -3593,7 +3613,17 @@ namespace SpineAnalyzer.ModelVisualization
 
         private void btnDoneChildEndplate_Click(object sender, EventArgs e)
         {
-            
+            // Re-add actors that were removed when child endplate editing started
+            ren1.AddActor(clipActor);
+            ren1.AddActor(osimBodyProp.osimJointProperty.axesActor);
+            ren1.AddActor(parentBodyProp.assembly);
+            RenderWindow.Render();
+
+            // Disable child endplate tools panel
+            panelChildEndplateTools.Enabled = false;
+
+            // Re-enable the child endplate button
+            btnChildEndplate.Enabled = true;
         }
 
         private void btnConfirmChild_Click(object sender, EventArgs e)

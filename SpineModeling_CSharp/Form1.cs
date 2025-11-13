@@ -20,26 +20,6 @@ namespace SpineModeling
             InitializeComponent();
         }
 
-        private void btnImageAnalysis_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void btnMS_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void btnCompareModels_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void btnPerturbator_Click(object sender, EventArgs e)
-        {
-
-        }
-
         private void btnSkeletal_Click(object sender, EventArgs e)
         {
             frmImageAnalysis_new frmImageAnalysis = new frmImageAnalysis_new();

@@ -2459,7 +2459,12 @@ namespace SpineAnalyzer.SkeletalModeling
 
         private void btnEqHisto_Click(object sender, EventArgs e)
         {
-
+            // Histogram equalization for VTK image actors
+            // Note: This button is currently hidden (Visible = false in Designer)
+            // TODO: Implement VTK-based histogram equalization using vtkImageHistogramEqualization
+            // or convert VTK image data to Emgu.CV format for processing
+            MessageBox.Show("Histogram equalization feature is not yet implemented for VTK images.",
+                "Feature Not Implemented", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void btnGrabAndReplace_Click(object sender, EventArgs e)

@@ -385,7 +385,23 @@ namespace SpineAnalyzer.SkeletalModeling
 
         private void btnRefresh_Click(object sender, EventArgs e)
         {
-          
+            // Refresh measurements data
+            if (_2DMeasurementsWorkpanel != null && _2DMeasurementsWorkpanel.UC_measurementsMain != null)
+            {
+                _2DMeasurementsWorkpanel.UC_measurementsMain.refreshMeasurements();
+            }
+
+            // Re-render the active panel view
+            if (_2DMeasurementsWorkpanel.Visible)
+            {
+                _2DMeasurementsWorkpanel.ResetViews();
+            }
+            else if (uC_3DModelingWorkpanel.Visible)
+            {
+                uC_3DModelingWorkpanel.RenderAll();
+            }
+
+            AddToLogsAndMessages("Views refreshed.");
         }
 
         private void button2_Click(object sender, EventArgs e)
@@ -502,16 +518,6 @@ namespace SpineAnalyzer.SkeletalModeling
 
         }
 
-        private void btnView_Click(object sender, EventArgs e)
-        {
-
-
-
-        }
-
-       
-
-      
         public static void BeginInteraction(vtkObject sender, vtkObjectEventArgs e)
         {
            
@@ -550,16 +556,6 @@ namespace SpineAnalyzer.SkeletalModeling
         //    }
         //};
 
-        private void btnLoadMSM_Click(object sender, EventArgs e)
-        {
-
-
-        }
-       
-
-      
-      
-     
         public void ExecuteHandle(vtkObject sender, vtkObjectEventArgs e)
         {
             //uncomment below again (2lines)
@@ -647,11 +643,6 @@ namespace SpineAnalyzer.SkeletalModeling
 
         }
 
-        private void btnTest_Click(object sender, EventArgs e)
-        {
-
-            
-        }
 
         private void numericUpDownIm2_ValueChanged(object sender, EventArgs e)
         {
@@ -1086,29 +1077,6 @@ namespace SpineAnalyzer.SkeletalModeling
 
         }
 
-        private void btnMeasurments_Click(object sender, EventArgs e)
-        {
-           
-        }
-
-        private void button3_Click_1(object sender, EventArgs e)
-        {
-           
-        
-    }
-
-        private void btnCalcCenter_Click(object sender, EventArgs e)
-        {
-
-        
-            
-        }
-
-
-        private void btnDrawCircle_Click(object sender, EventArgs e)
-        {
-           
-        }
 
         private void label5_Click(object sender, EventArgs e)
         {
