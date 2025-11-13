@@ -540,6 +540,13 @@ namespace SpineAnalyzer.ModelVisualization
                 double orY = Convert.ToDouble(row[indexOY].ToString());
                 double orZ = Convert.ToDouble(row[indexOZ].ToString());
 
+                // TODO: Implement body kinematics processing
+                // Possible implementations:
+                // 1. Store kinematics data in a collection for later analysis
+                // 2. Calculate dynamic landmarks based on position and orientation
+                // 3. Update visualization with body position/orientation
+                // 4. Export kinematics data to file or database
+                // See similar usage at lines 696-707 and 937-948 for reference
             }
         }
 

@@ -646,41 +646,41 @@ namespace SpineAnalyzer.SkeletalModeling
             //return selected measurement(s)
 
             //Check if rows selected
-            //int RowCount = dgViewMeasurements.Rows.GetRowCount(DataGridViewElementStates.Selected);
+            int RowCount = dgViewMeasurements.Rows.GetRowCount(DataGridViewElementStates.Selected);
 
-            //if (RowCount == 0)
-            //    return;
+            if (RowCount == 0)
+                return;
 
 
-            //for (int i = 0; i < RowCount; i++)
-            //{
+            for (int i = 0; i < RowCount; i++)
+            {
 
-            //    //Get row of clicked cell
-            //    DataGridViewRow row = dgViewMeasurements.Rows[dgViewMeasurements.SelectedRows[i].Index];
-            //    //Get column AcquisitionNumber
-            //    DataGridViewCell cell = row.Cells["MeasurementID"];
+                //Get row of clicked cell
+                DataGridViewRow row = dgViewMeasurements.Rows[dgViewMeasurements.SelectedRows[i].Index];
+                //Get column AcquisitionNumber
+                DataGridViewCell cell = row.Cells["MeasurementID"];
 
-            //    //Set Database
-            //    DataBase SQLDB = new DataBase(AppData.SQLServer, AppData.SQLDatabase, AppData.SQLAuthSQL, AppData.SQLUser, AppData.SQLPassword);
+                //Set Database
+                DataBase SQLDB = new DataBase(AppData.SQLServer, AppData.SQLDatabase, AppData.SQLAuthSQL, AppData.SQLUser, AppData.SQLPassword);
 
-            //    Measurement SelectedMeasurement = new Measurement(SQLDB, Subject, EOS.AcquisitionNumber, Convert.ToInt32(cell.Value), AppData);
+                Measurement SelectedMeasurement = new Measurement(SQLDB, Subject, EOS.AcquisitionNumber, Convert.ToInt32(cell.Value), AppData);
 
-            //    CalculateTo3D(SelectedMeasurement);
+                CalculateTo3D(SelectedMeasurement);
 
-            //    if (SimModelVisualization.osimModel == null)
-            //    {
-            //        // MessageBox.Show("3D position of the marker has been calculated. To attach marker to model you have to load a model first.", "No model loaded!", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (SimModelVisualization.osimModel == null)
+                {
+                    // MessageBox.Show("3D position of the marker has been calculated. To attach marker to model you have to load a model first.", "No model loaded!", MessageBoxButtons.OK, MessageBoxIcon.Error);
 
-            //    }
-            //    else
-            //    {
-            //        Position pos = new Position((float)SelectedMeasurement.PosX, (float)SelectedMeasurement.PosY, (float)SelectedMeasurement.PosZ);
+                }
+                else
+                {
+                    Position pos = new Position((float)SelectedMeasurement.PosX, (float)SelectedMeasurement.PosY, (float)SelectedMeasurement.PosZ);
 
-            //         AddMarker(pos, SelectedMeasurement.MeasurementName);
-            //    }
-            //}
+                     AddMarker(pos, SelectedMeasurement.MeasurementName);
+                }
+            }
 
-            //refreshMeasurements();
+            refreshMeasurements();
         }
 
         private void btnView_Click(object sender, EventArgs e)
