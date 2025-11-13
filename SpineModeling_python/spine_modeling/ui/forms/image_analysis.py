@@ -445,11 +445,11 @@ class ImageAnalysisForm(QMainWindow):
             dd2 = DicomDecoder()
 
             # Read images
-            self.eos_image1 = EosImage()
+            self.eos_image1 = EosImage(directory=file1)
             dd1.dicom_file_name = file1
             self._read_eos_image(self.eos_image1, dd1)
 
-            self.eos_image2 = EosImage()
+            self.eos_image2 = EosImage(directory=file2)
             dd2.dicom_file_name = file2
             self._read_eos_image(self.eos_image2, dd2)
 
