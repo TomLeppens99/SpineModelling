@@ -52,7 +52,7 @@ Value Representations (VR):
 
 """
 
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 
 
 class DicomDictionary:
@@ -932,6 +932,60 @@ class DicomDictionary:
 
         """
         return tag.upper() in self.dict
+
+    def get_tag_tuple(self, tag_name: str) -> Optional[Tuple[int, int]]:
+        """
+        Get DICOM tag as a tuple of integers by tag name.
+
+        This method looks up well-known DICOM tag names and returns
+        the tag as a tuple (group, element).
+
+        Args:
+            tag_name: DICOM tag name (e.g., "PatientName", "PatientID")
+
+        Returns:
+            Tuple of (group, element) as integers, or None if not found
+
+        Example:
+            >>> dictionary = DicomDictionary()
+            >>> tag = dictionary.get_tag_tuple("PatientName")
+            >>> print(tag)
+            (16, 16)
+
+        """
+        # Map of common tag names to their hex strings
+        tag_name_map = {
+            "PatientName": "00100010",
+            "PatientID": "00100020",
+            "PatientBirthDate": "00100030",
+            "PatientSex": "00100040",
+            "StudyDate": "00080020",
+            "StudyTime": "00080030",
+            "Modality": "00080060",
+            "Manufacturer": "00080070",
+            "StudyDescription": "00081030",
+            "SeriesDescription": "0008103E",
+            "Rows": "00280010",
+            "Columns": "00280011",
+            "PixelSpacing": "00280030",
+            "BitsAllocated": "00280100",
+            "BitsStored": "00280101",
+            "HighBit": "00280102",
+            "PixelRepresentation": "00280103",
+            "WindowCenter": "00281050",
+            "WindowWidth": "00281051",
+            "RescaleIntercept": "00281052",
+            "RescaleSlope": "00281053",
+            "PixelData": "7FE00010",
+        }
+
+        tag_hex = tag_name_map.get(tag_name)
+        if tag_hex:
+            # Convert hex string to tuple
+            group = int(tag_hex[:4], 16)
+            element = int(tag_hex[4:], 16)
+            return (group, element)
+        return None
 
     def get_all_tags(self) -> list:
         """
