@@ -1,5 +1,5 @@
 # Core Python packages
-numpy>=1.19.0,<2.0.0
+numpy>=1.19.0
 scipy>=1.5.0
 pandas>=1.1.0
 
@@ -11,7 +11,10 @@ opencv-python>=4.5.0
 vtk>=9.0.0
 
 # Biomechanics simulation
-opensim>=4.3
+# NOTE: opensim is NOT available via pip and must be installed using conda:
+#   conda install -c opensim-org opensim
+# Tested with opensim==4.5.2 (requires Python <=3.12)
+# opensim>=4.3  # Install separately via conda
 
 # GUI framework
 PyQt5>=5.15.0
