@@ -193,20 +193,26 @@ class Measurements2DPanel(QWidget):
 
         try:
             # Load and display image 1
-            if hasattr(self.eos_image1, "get_pixel_data"):
+            if self.eos_image1.pixel_array is not None:
                 pixmap1 = self._create_pixmap_from_eos(self.eos_image1)
                 self.image1_label.setPixmap(pixmap1)
+            else:
+                print("Image 1 pixel array not loaded")
 
             # Load and display image 2
-            if hasattr(self.eos_image2, "get_pixel_data"):
+            if self.eos_image2.pixel_array is not None:
                 pixmap2 = self._create_pixmap_from_eos(self.eos_image2)
                 self.image2_label.setPixmap(pixmap2)
+            else:
+                print("Image 2 pixel array not loaded")
 
             self.loaded_2d = True
             print("2D images loaded successfully")
 
         except Exception as e:
             print(f"Error loading images: {e}")
+            import traceback
+            traceback.print_exc()
             self.loaded_2d = False
 
     def _create_pixmap_from_eos(self, eos_image) -> QPixmap:
@@ -219,12 +225,50 @@ class Measurements2DPanel(QWidget):
         Returns:
             QPixmap containing the image data.
         """
-        # Placeholder implementation
-        # In production, this would convert the DICOM pixel data to QPixmap
-        # For now, create a placeholder image
-        placeholder = QPixmap(512, 512)
-        placeholder.fill(QColor(50, 50, 50))
-        return placeholder
+        try:
+            import numpy as np
+
+            pixel_array = eos_image.pixel_array
+
+            # Normalize pixel values to 8-bit range (0-255)
+            # DICOM images often have 12-bit or 16-bit data
+            pixel_min = np.min(pixel_array)
+            pixel_max = np.max(pixel_array)
+
+            if pixel_max > pixel_min:
+                # Normalize to 0-255 range
+                normalized = ((pixel_array - pixel_min) / (pixel_max - pixel_min) * 255).astype(np.uint8)
+            else:
+                normalized = np.zeros_like(pixel_array, dtype=np.uint8)
+
+            # Get image dimensions
+            height, width = normalized.shape
+
+            # Create QImage from numpy array (grayscale format)
+            bytes_per_line = width
+            qimage = QImage(normalized.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
+
+            # Convert to QPixmap
+            pixmap = QPixmap.fromImage(qimage)
+
+            # Scale to fit display (max 800 pixels in either dimension)
+            max_display_size = 800
+            if width > max_display_size or height > max_display_size:
+                pixmap = pixmap.scaled(
+                    max_display_size, max_display_size,
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+
+            return pixmap
+
+        except Exception as e:
+            print(f"Error creating pixmap: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return placeholder on error
+            placeholder = QPixmap(512, 512)
+            placeholder.fill(QColor(50, 50, 50))
+            return placeholder
 
     def _on_point_mode_clicked(self) -> None:
         """Handle Point Mode button click."""
