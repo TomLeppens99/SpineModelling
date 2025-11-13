@@ -454,7 +454,7 @@ class ImageAnalysisForm(QMainWindow):
             self._read_eos_image(self.eos_image2, dd2)
 
             # Create EOS space for 3D reconstruction
-            self.eos_space = EosSpace()
+            self.eos_space = EosSpace(self.eos_image1, self.eos_image2)
 
             self.add_to_logs_and_messages("EOS images loaded successfully")
             self._check_panels_loading()
