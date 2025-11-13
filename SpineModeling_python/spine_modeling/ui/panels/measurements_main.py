@@ -11,12 +11,18 @@ Note: This is a streamlined implementation. Database queries and complex
 data operations will be refined during integration testing.
 """
 
+import logging
 from typing import Optional, List, Dict, Any
+from pathlib import Path
+from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QLabel, QHeaderView, QMessageBox
+    QPushButton, QLabel, QHeaderView, QMessageBox, QFileDialog
 )
 from PyQt5.QtCore import Qt
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 class MeasurementsMainPanel(QWidget):
@@ -104,6 +110,11 @@ class MeasurementsMainPanel(QWidget):
         btn_export.clicked.connect(self._on_export_to_excel)
         toolbar_layout.addWidget(btn_export)
 
+        # Export TRC button
+        btn_export_trc = QPushButton("Export to TRC")
+        btn_export_trc.clicked.connect(self._on_export_to_trc)
+        toolbar_layout.addWidget(btn_export_trc)
+
         # Table widget for measurements
         self.table_measurements = QTableWidget()
         self.table_measurements.setColumnCount(4)
@@ -139,7 +150,7 @@ class MeasurementsMainPanel(QWidget):
         """
         Refresh measurements from database.
 
-        Loads measurements for the current acquisition and displays them
+        Loads measurements for the current subject and displays them
         in the table. Optionally filters by user ID.
 
         Args:
@@ -149,11 +160,6 @@ class MeasurementsMainPanel(QWidget):
         self.table_measurements.setRowCount(0)
         self._measurements_data.clear()
 
-        # Check if we have necessary data
-        if self.eos is None:
-            self.lbl_status.setText("No EOS acquisition selected")
-            return
-
         if self.sql_db is None:
             self.lbl_status.setText("Database not connected")
             # Load sample data for testing
@@ -161,15 +167,59 @@ class MeasurementsMainPanel(QWidget):
             return
 
         try:
-            # Build SQL query
-            # Note: In production, use parameterized queries with SQLAlchemy
-            # acquisition_number = self.eos.AcquisitionNumber
+            # Get all measurements if no specific subject
+            if self.subject is None:
+                logger.info("No subject selected, loading all measurements")
+                measurements = self.sql_db.get_all_measurements()
+            else:
+                # Get subject from database
+                subject_code = self.subject.subject_code if hasattr(self.subject, 'subject_code') else "DEFAULT"
+                subject_obj = self.sql_db.get_subject_by_code(subject_code)
 
-            # Execute query and populate table
-            # For now, load sample data
-            self._load_sample_data()
+                if subject_obj is None:
+                    logger.warning(f"Subject {subject_code} not found in database")
+                    self.lbl_status.setText(f"Subject {subject_code} not found in database")
+                    return
+
+                # Get measurements for this subject
+                logger.info(f"Loading measurements for subject {subject_code}")
+                measurements = self.sql_db.get_measurements_by_subject(subject_obj.subject_id)
+
+            # Convert measurements to dictionary format for the table
+            measurements_data = []
+            for meas in measurements:
+                meas_dict = {
+                    "MeasurementID": meas.measurement_id,
+                    "MeasurementName": meas.measurement_name,
+                    "MeasurementComment": meas.comment or "",
+                    "UserName": meas.user or "Unknown",
+                    "MeasurementType": meas.measurement_type,
+                    "ImageType": meas.image_type,
+                    "MeasurementValue": meas.measurement_value,
+                    "MeasurementUnit": meas.measurement_unit,
+                    "PosX": meas.x_coord,
+                    "PosY": meas.y_coord,
+                    "PosZ": meas.z_coord,
+                    "EllipseCenterX": meas.ellipse_center_x,
+                    "EllipseCenterY": meas.ellipse_center_y,
+                    "EllipseMajorAxis": meas.ellipse_major_axis,
+                    "EllipseMinorAxis": meas.ellipse_minor_axis,
+                    "EllipseAngle": meas.ellipse_angle,
+                    "MeasurementDate": meas.measurement_date
+                }
+                measurements_data.append(meas_dict)
+
+            # Populate table
+            self._populate_table(measurements_data)
+
+            # Update status
+            count = len(measurements_data)
+            subject_info = f" for subject {self.subject.subject_code}" if self.subject else ""
+            self.lbl_status.setText(f"Loaded {count} measurement(s){subject_info}")
+            logger.info(f"Loaded {count} measurements from database")
 
         except Exception as e:
+            logger.error(f"Error loading measurements from database: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
                 "Database Error",
@@ -270,21 +320,63 @@ class MeasurementsMainPanel(QWidget):
         )
 
         if reply == QMessageBox.Yes:
-            # Delete from database
-            # TODO: Implement database deletion
-            print(f"Deleting {len(selected_rows)} measurements")
+            if self.sql_db is None:
+                QMessageBox.warning(
+                    self,
+                    "Database Error",
+                    "Database not connected. Cannot delete measurements."
+                )
+                return
 
-            # Remove from table
-            for index in sorted([r.row() for r in selected_rows], reverse=True):
-                self.table_measurements.removeRow(index)
+            try:
+                # Get measurement IDs to delete
+                measurement_ids = []
+                for row_index in selected_rows:
+                    row = row_index.row()
+                    item = self.table_measurements.item(row, 0)  # Column 0 is ID
+                    if item:
+                        try:
+                            meas_id = int(item.text())
+                            measurement_ids.append(meas_id)
+                        except ValueError:
+                            pass
 
-            self.lbl_status.setText(f"Deleted {len(selected_rows)} measurement(s)")
+                # Delete from database
+                deleted_count = 0
+                for meas_id in measurement_ids:
+                    if self.sql_db.delete_measurement(meas_id):
+                        deleted_count += 1
+                        logger.info(f"Deleted measurement ID {meas_id}")
+                    else:
+                        logger.warning(f"Failed to delete measurement ID {meas_id}")
+
+                # Refresh the table
+                self.refresh_measurements()
+
+                # Show success message
+                self.lbl_status.setText(f"Deleted {deleted_count} measurement(s)")
+                if deleted_count > 0:
+                    QMessageBox.information(
+                        self,
+                        "Success",
+                        f"Successfully deleted {deleted_count} measurement(s)."
+                    )
+
+            except Exception as e:
+                logger.error(f"Error deleting measurements: {e}", exc_info=True)
+                QMessageBox.critical(
+                    self,
+                    "Database Error",
+                    f"Failed to delete measurements:\n{e}"
+                )
+                self.lbl_status.setText(f"Error deleting measurements")
 
     def _on_export_to_excel(self) -> None:
         """
         Handle Export to Excel button click.
 
-        Exports the current measurements to an Excel file.
+        Exports the current measurements to an Excel file using openpyxl.
+        Based on C# ExportToExcel() method in UC_measurementsMain.cs
         """
         if self.table_measurements.rowCount() == 0:
             QMessageBox.information(
@@ -294,12 +386,298 @@ class MeasurementsMainPanel(QWidget):
             )
             return
 
-        # TODO: Implement Excel export using pandas or openpyxl
-        QMessageBox.information(
+        # Show file save dialog
+        default_filename = f"measurements_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export",
-            "Excel export functionality will be implemented."
+            "Export Measurements to Excel",
+            default_filename,
+            "Excel Files (*.xlsx);;All Files (*)"
         )
+
+        if not file_path:
+            return  # User cancelled
+
+        try:
+            self.export_to_excel(file_path)
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Measurements exported to:\n{file_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Export Error",
+                f"Failed to export measurements:\n{e}"
+            )
+
+    def export_to_excel(self, file_path: str) -> None:
+        """
+        Export measurements table to Excel file.
+
+        Uses openpyxl to create a formatted Excel workbook with measurement data.
+        Exports all columns: MeasurementID, Name, Comment, User, and additional
+        3D coordinates if available.
+
+        Args:
+            file_path: Output file path for the Excel file.
+
+        Raises:
+            ImportError: If openpyxl is not installed.
+            Exception: If export fails.
+        """
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, Alignment, PatternFill
+        except ImportError:
+            raise ImportError(
+                "openpyxl is required for Excel export. "
+                "Install it with: pip install openpyxl"
+            )
+
+        # Create workbook and worksheet
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Measurements Export"
+
+        # Add header row with formatting
+        headers = ["Measurement ID", "Name", "Comment", "User"]
+
+        # Add 3D coordinate headers if we have that data
+        if self._measurements_data and any(
+            'PosX' in m or 'PosY' in m or 'PosZ' in m
+            for m in self._measurements_data
+        ):
+            headers.extend(["Pos X (m)", "Pos Y (m)", "Pos Z (m)"])
+
+        # Write headers
+        for col_idx, header in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.font = Font(bold=True, size=12)
+            cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Write data rows
+        for row_idx in range(self.table_measurements.rowCount()):
+            # Get data from table
+            meas_id = self.table_measurements.item(row_idx, 0)
+            name = self.table_measurements.item(row_idx, 1)
+            comment = self.table_measurements.item(row_idx, 2)
+            user = self.table_measurements.item(row_idx, 3)
+
+            # Write to Excel (row_idx + 2 because Excel is 1-indexed and row 1 is headers)
+            excel_row = row_idx + 2
+            ws.cell(row=excel_row, column=1, value=meas_id.text() if meas_id else "")
+            ws.cell(row=excel_row, column=2, value=name.text() if name else "")
+            ws.cell(row=excel_row, column=3, value=comment.text() if comment else "")
+            ws.cell(row=excel_row, column=4, value=user.text() if user else "")
+
+            # Add 3D coordinates if available
+            if row_idx < len(self._measurements_data):
+                measurement = self._measurements_data[row_idx]
+                if 'PosX' in measurement:
+                    ws.cell(row=excel_row, column=5, value=measurement.get('PosX', ''))
+                if 'PosY' in measurement:
+                    ws.cell(row=excel_row, column=6, value=measurement.get('PosY', ''))
+                if 'PosZ' in measurement:
+                    ws.cell(row=excel_row, column=7, value=measurement.get('PosZ', ''))
+
+        # Auto-size columns
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)  # Cap at 50
+            ws.column_dimensions[column_letter].width = adjusted_width
+
+        # Save workbook
+        wb.save(file_path)
+        self.lbl_status.setText(f"Exported {self.table_measurements.rowCount()} measurements to Excel")
+
+    def _on_export_to_trc(self) -> None:
+        """
+        Handle Export to TRC button click.
+
+        Exports selected measurements to TRC (Track Row Column) format,
+        which is a motion capture marker trajectory file format used by OpenSim.
+        """
+        selected_rows = self.table_measurements.selectionModel().selectedRows()
+
+        if not selected_rows:
+            QMessageBox.information(
+                self,
+                "No Selection",
+                "Please select one or more measurements to export to TRC format."
+            )
+            return
+
+        # Show file save dialog
+        default_filename = f"marker_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.trc"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Markers to TRC",
+            default_filename,
+            "TRC Files (*.trc);;All Files (*)"
+        )
+
+        if not file_path:
+            return  # User cancelled
+
+        try:
+            # Get selected measurements
+            selected_measurements = []
+            for row_index in selected_rows:
+                row = row_index.row()
+                if row < len(self._measurements_data):
+                    selected_measurements.append(self._measurements_data[row])
+
+            self.export_to_trc(file_path, selected_measurements)
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Exported {len(selected_measurements)} markers to:\n{file_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Export Error",
+                f"Failed to export to TRC:\n{e}"
+            )
+
+    def export_to_trc(self, file_path: str, measurements: List[Dict[str, Any]]) -> None:
+        """
+        Export measurements to TRC (Track Row Column) format.
+
+        TRC is a tab-delimited text file format used by OpenSim for marker trajectories.
+        Format based on C# PrintMarkersToTrc() method in UC_measurementsMain.cs
+
+        Args:
+            file_path: Output file path for the TRC file.
+            measurements: List of measurement dictionaries with PosX, PosY, PosZ coordinates.
+
+        Raises:
+            Exception: If export fails.
+        """
+        try:
+            from openpyxl import Workbook
+        except ImportError:
+            raise ImportError(
+                "openpyxl is required for TRC export. "
+                "Install it with: pip install openpyxl"
+            )
+
+        # Create workbook (we'll export to Excel first, then convert to tab-delimited)
+        wb = Workbook()
+        ws = wb.active
+
+        # TRC file header - Row 1
+        ws.cell(1, 1, "PathFileType")
+        ws.cell(1, 2, 4)  # Version
+        ws.cell(1, 3, "(X/Y/Z)")
+        ws.cell(1, 4, Path(file_path).name)
+
+        # TRC file metadata - Row 2
+        ws.cell(2, 1, "DataRate")
+        ws.cell(2, 2, "CameraRate")
+        ws.cell(2, 3, "NumFrames")
+        ws.cell(2, 4, "NumMarkers")
+        ws.cell(2, 5, "Units")
+        ws.cell(2, 6, "OrigDataRate")
+        ws.cell(2, 7, "OrigDataStartFrame")
+        ws.cell(2, 8, "OrigNumFrames")
+
+        # TRC metadata values - Row 3
+        num_markers = len(measurements)
+        num_frames = 60  # Static pose, but TRC requires frame data
+        camera_rate = 60
+
+        ws.cell(3, 1, camera_rate)
+        ws.cell(3, 2, camera_rate)
+        ws.cell(3, 3, num_frames)
+        ws.cell(3, 4, num_markers)
+        ws.cell(3, 5, "mm")  # Units in millimeters
+        ws.cell(3, 6, camera_rate)
+        ws.cell(3, 7, 1)  # Start frame
+        ws.cell(3, 8, num_frames)
+
+        # Column headers - Row 4
+        ws.cell(4, 1, "Frame#")
+        ws.cell(4, 2, "Time")
+
+        # Marker names - Row 4
+        for i, measurement in enumerate(measurements):
+            marker_name = measurement.get("MeasurementName", f"Marker{i+1}")
+            ws.cell(4, 3 * (i + 1), marker_name)
+
+        # X/Y/Z labels - Row 5
+        ws.cell(5, 1, "")
+        ws.cell(5, 2, "")
+        for i in range(num_markers):
+            ws.cell(5, 3 * (i + 1), f"X{i+1}")
+            ws.cell(5, (3 * (i + 1)) + 1, f"Y{i+1}")
+            ws.cell(5, (3 * (i + 1)) + 2, f"Z{i+1}")
+
+        # Frame data - Rows 6 onwards
+        # For static markers, repeat the same position for all frames
+        for frame in range(1, num_frames + 1):
+            row_num = 6 + frame - 1
+
+            # Frame number
+            ws.cell(row_num, 1, frame)
+
+            # Time (in seconds)
+            time = round((1 / camera_rate) * (frame - 1), 3)
+            ws.cell(row_num, 2, time)
+
+            # Marker coordinates (convert from meters to millimeters)
+            for i, measurement in enumerate(measurements):
+                pos_x = measurement.get("PosX", 0.0)
+                pos_y = measurement.get("PosY", 0.0)
+                pos_z = measurement.get("PosZ", 0.0)
+
+                # Convert meters to millimeters and format with decimal point
+                ws.cell(row_num, 3 * (i + 1), pos_x * 1000)
+                ws.cell(row_num, (3 * (i + 1)) + 1, pos_y * 1000)
+                ws.cell(row_num, (3 * (i + 1)) + 2, pos_z * 1000)
+
+        # Save as Excel first
+        temp_excel = file_path + ".temp.xlsx"
+        wb.save(temp_excel)
+
+        # Convert to tab-delimited text (TRC format)
+        wb_read = Workbook()
+        from openpyxl import load_workbook
+        wb_read = load_workbook(temp_excel)
+        ws_read = wb_read.active
+
+        with open(file_path, 'w', encoding='utf-8') as f:
+            for row in ws_read.iter_rows():
+                values = []
+                for cell in row:
+                    value = cell.value
+                    if value is None:
+                        values.append('')
+                    else:
+                        # Format floats with decimal point (not comma)
+                        if isinstance(value, float):
+                            values.append(str(value).replace(',', '.'))
+                        else:
+                            values.append(str(value))
+                # Join with tabs
+                f.write('\t'.join(values) + '\n')
+
+        # Clean up temp file
+        import os
+        os.remove(temp_excel)
+
+        self.lbl_status.setText(f"Exported {num_markers} markers to TRC format")
 
     def get_selected_measurement_ids(self) -> List[int]:
         """

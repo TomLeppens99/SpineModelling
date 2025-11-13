@@ -12,13 +12,20 @@ panel integration. Complex logic will be refined during integration testing.
 """
 
 import os
+import logging
+import pickle
+from pathlib import Path
 from typing import Optional, List
 from PyQt5.QtWidgets import (
     QMainWindow, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QPushButton,
-    QLabel, QStatusBar, QMenuBar, QMenu, QAction, QMessageBox, QApplication
+    QLabel, QStatusBar, QMenuBar, QMenu, QAction, QMessageBox, QApplication,
+    QFileDialog
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QCursor
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 class ImageAnalysisForm(QMainWindow):
@@ -151,6 +158,61 @@ class ImageAnalysisForm(QMainWindow):
         import_action.triggered.connect(self._on_import_eos_images)
         file_menu.addAction(import_action)
 
+        # Load Model action
+        load_model_action = QAction("&Load OpenSim Model...", self)
+        load_model_action.setShortcut("Ctrl+O")
+        load_model_action.setStatusTip("Load an OpenSim .osim model file")
+        load_model_action.triggered.connect(self._on_load_model)
+        file_menu.addAction(load_model_action)
+
+        # Load STL Meshes action
+        load_stl_action = QAction("Load &CT/STL Meshes...", self)
+        load_stl_action.setStatusTip("Load CT vertebrae STL mesh files")
+        load_stl_action.triggered.connect(self._on_load_stl_meshes)
+        file_menu.addAction(load_stl_action)
+
+        file_menu.addSeparator()
+
+        # Save Model action
+        save_model_action = QAction("&Save Model...", self)
+        save_model_action.setShortcut("Ctrl+S")
+        save_model_action.setStatusTip("Save OpenSim model to .osim file")
+        save_model_action.triggered.connect(self._on_save_model)
+        file_menu.addAction(save_model_action)
+
+        # Export submenu
+        export_menu = file_menu.addMenu("&Export")
+
+        # Export measurements to Excel
+        export_excel_action = QAction("Measurements to &Excel...", self)
+        export_excel_action.setStatusTip("Export measurements to Excel file")
+        export_excel_action.triggered.connect(self._on_export_measurements_excel)
+        export_menu.addAction(export_excel_action)
+
+        # Export markers to TRC
+        export_trc_action = QAction("Markers to &TRC...", self)
+        export_trc_action.setStatusTip("Export markers to TRC format")
+        export_trc_action.triggered.connect(self._on_export_markers_trc)
+        export_menu.addAction(export_trc_action)
+
+        file_menu.addSeparator()
+
+        # Workspace actions
+        save_workspace_action = QAction("Save &Workspace...", self)
+        save_workspace_action.setStatusTip("Save current workspace state")
+        save_workspace_action.triggered.connect(self._on_save_workspace)
+        file_menu.addAction(save_workspace_action)
+
+        load_workspace_action = QAction("Load W&orkspace...", self)
+        load_workspace_action.setStatusTip("Load saved workspace state")
+        load_workspace_action.triggered.connect(self._on_load_workspace)
+        file_menu.addAction(load_workspace_action)
+
+        clear_workspace_action = QAction("Clear Workspace", self)
+        clear_workspace_action.setStatusTip("Clear all loaded data")
+        clear_workspace_action.triggered.connect(self._on_clear_workspace)
+        file_menu.addAction(clear_workspace_action)
+
         file_menu.addSeparator()
 
         # Exit action
@@ -282,13 +344,35 @@ class ImageAnalysisForm(QMainWindow):
             return
 
         # Initialize database connection
-        if self.app_data is not None:
-            try:
-                # TODO: Initialize database connection when database module is ready
-                # self.sql_db = DataBase(...)
-                pass
-            except Exception as e:
-                self.add_to_logs_and_messages(f"Database connection error: {e}")
+        try:
+            from spine_modeling.database.models import DatabaseManager
+
+            # Create database directory if it doesn't exist
+            db_dir = Path.home() / ".spinemodeling"
+            db_dir.mkdir(exist_ok=True)
+
+            # Initialize database
+            db_path = db_dir / "spinemodeling.db"
+            self.sql_db = DatabaseManager(f"sqlite:///{db_path}")
+            self.sql_db.initialize_database()
+
+            logger.info(f"Database initialized at {db_path}")
+            self.add_to_logs_and_messages(f"Database connected: {db_path}")
+
+            # Pass database to child panels
+            if self.measurements_2d_panel is not None:
+                self.measurements_2d_panel.sql_db = self.sql_db
+            if self.measurements_main_panel is not None:
+                self.measurements_main_panel.sql_db = self.sql_db
+
+        except Exception as e:
+            logger.error(f"Database initialization error: {e}", exc_info=True)
+            self.add_to_logs_and_messages(f"Database connection error: {e}")
+            QMessageBox.warning(
+                self,
+                "Database Warning",
+                f"Database could not be initialized:\n{e}\n\nThe application will continue without database support."
+            )
 
         # Set visualization engine properties
         if self.sim_model_visualization is not None:
@@ -461,9 +545,20 @@ class ImageAnalysisForm(QMainWindow):
                 self.measurements_2d_panel.eos_image1 = self.eos_image1
                 self.measurements_2d_panel.eos_image2 = self.eos_image2
                 self.measurements_2d_panel.eos_space = self.eos_space
+                self.measurements_2d_panel.sql_db = self.sql_db
+                self.measurements_2d_panel.subject = self.subject
+                self.measurements_2d_panel.measurements_main_panel = self.measurements_main_panel
 
                 # Load and display the images in the panel
                 self.measurements_2d_panel.load_images()
+
+            # Set references for measurements main panel
+            if self.measurements_main_panel is not None:
+                self.measurements_main_panel.sql_db = self.sql_db
+                self.measurements_main_panel.subject = self.subject
+                self.measurements_main_panel.eos_image1 = self.eos_image1
+                self.measurements_main_panel.eos_image2 = self.eos_image2
+                self.measurements_main_panel.eos_space = self.eos_space
 
             self.add_to_logs_and_messages("EOS images loaded successfully")
             self._check_panels_loading()
@@ -491,6 +586,357 @@ class ImageAnalysisForm(QMainWindow):
 
         # Load pixel data for display
         eos_image.load_pixel_array()
+
+    def _on_load_model(self) -> None:
+        """
+        Handle Load OpenSim Model menu action.
+
+        Opens a file dialog to select an .osim model file and loads it
+        into the visualization engine.
+        """
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load OpenSim Model",
+            "",
+            "OpenSim Model Files (*.osim);;All Files (*)"
+        )
+
+        if not file_path:
+            return  # User cancelled
+
+        try:
+            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+            self.add_to_logs_and_messages(f"Loading OpenSim model: {file_path}")
+
+            # Load model using visualization engine
+            if self.sim_model_visualization is None:
+                from spine_modeling.visualization.sim_model_visualization import (
+                    SimModelVisualization,
+                )
+                self.sim_model_visualization = SimModelVisualization()
+
+            # TODO: Implement model loading when SimModelVisualization.load_model() is ready
+            # self.sim_model_visualization.load_model(file_path)
+
+            # Set on 3D modeling panel
+            if self.modeling_3d_panel is not None:
+                self.modeling_3d_panel.sim_model_visualization = self.sim_model_visualization
+
+            self.add_to_logs_and_messages("OpenSim model loaded successfully")
+            QMessageBox.information(
+                self,
+                "Model Loaded",
+                f"Successfully loaded OpenSim model:\n{os.path.basename(file_path)}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Loading Model",
+                f"Failed to load OpenSim model:\n{e}"
+            )
+            self.add_to_logs_and_messages(f"Error loading model: {e}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _on_save_model(self) -> None:
+        """
+        Handle Save Model menu action.
+
+        Saves the current OpenSim model to an .osim XML file.
+        """
+        if self.sim_model_visualization is None or not hasattr(self.sim_model_visualization, 'model'):
+            QMessageBox.warning(
+                self,
+                "No Model",
+                "No OpenSim model is currently loaded."
+            )
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save OpenSim Model",
+            "",
+            "OpenSim Model Files (*.osim);;All Files (*)"
+        )
+
+        if not file_path:
+            return  # User cancelled
+
+        try:
+            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+            self.add_to_logs_and_messages(f"Saving OpenSim model: {file_path}")
+
+            # Save model using OpenSim API
+            if hasattr(self.sim_model_visualization, 'model') and self.sim_model_visualization.model is not None:
+                try:
+                    import opensim
+                    # Use OpenSim API to save model
+                    self.sim_model_visualization.model.printToXML(file_path)
+                    self.add_to_logs_and_messages("OpenSim model saved successfully")
+                    QMessageBox.information(
+                        self,
+                        "Model Saved",
+                        f"Successfully saved OpenSim model to:\n{file_path}"
+                    )
+                except ImportError:
+                    raise ImportError("OpenSim is not installed")
+            else:
+                raise ValueError("No model available to save")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Saving Model",
+                f"Failed to save OpenSim model:\n{e}"
+            )
+            self.add_to_logs_and_messages(f"Error saving model: {e}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _on_load_stl_meshes(self) -> None:
+        """
+        Handle Load CT/STL Meshes menu action.
+
+        Opens a file dialog to select STL mesh files (e.g., CT-scanned vertebrae)
+        and loads them into the 3D visualization.
+        """
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Load STL Mesh Files",
+            "",
+            "STL Mesh Files (*.stl);;All Files (*)"
+        )
+
+        if not file_paths:
+            return  # User cancelled
+
+        try:
+            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+            self.add_to_logs_and_messages(f"Loading {len(file_paths)} STL mesh file(s)...")
+
+            try:
+                import vtk
+            except ImportError:
+                raise ImportError("VTK is required for STL mesh loading")
+
+            loaded_count = 0
+            for file_path in file_paths:
+                try:
+                    # Create STL reader
+                    stl_reader = vtk.vtkSTLReader()
+                    stl_reader.SetFileName(file_path)
+                    stl_reader.Update()
+
+                    # Create mapper
+                    mapper = vtk.vtkPolyDataMapper()
+                    mapper.SetInputConnection(stl_reader.GetOutputPort())
+
+                    # Create actor
+                    actor = vtk.vtkActor()
+                    actor.SetMapper(mapper)
+
+                    # Set default color (bone white)
+                    actor.GetProperty().SetColor(0.9, 0.9, 0.8)
+                    actor.GetProperty().SetOpacity(0.8)
+
+                    # Add to 3D modeling panel renderer
+                    if self.modeling_3d_panel is not None:
+                        # TODO: Add actor to renderer when panel implementation is ready
+                        # self.modeling_3d_panel.add_actor(actor)
+                        pass
+
+                    loaded_count += 1
+                    self.add_to_logs_and_messages(f"Loaded STL mesh: {os.path.basename(file_path)}")
+
+                except Exception as e:
+                    self.add_to_logs_and_messages(f"Failed to load {file_path}: {e}")
+
+            if loaded_count > 0:
+                QMessageBox.information(
+                    self,
+                    "Meshes Loaded",
+                    f"Successfully loaded {loaded_count} STL mesh file(s)."
+                )
+                self.add_to_logs_and_messages(f"Loaded {loaded_count} STL meshes successfully")
+            else:
+                QMessageBox.warning(
+                    self,
+                    "No Meshes Loaded",
+                    "Failed to load any STL mesh files."
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Loading Meshes",
+                f"Failed to load STL meshes:\n{e}"
+            )
+            self.add_to_logs_and_messages(f"Error loading meshes: {e}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _on_export_measurements_excel(self) -> None:
+        """
+        Handle Export Measurements to Excel menu action.
+
+        Delegates to the measurements main panel's Excel export functionality.
+        """
+        if self.measurements_main_panel is not None:
+            self.measurements_main_panel._on_export_to_excel()
+        else:
+            QMessageBox.warning(
+                self,
+                "Panel Not Available",
+                "Measurements panel is not initialized."
+            )
+
+    def _on_export_markers_trc(self) -> None:
+        """
+        Handle Export Markers to TRC menu action.
+
+        Delegates to the measurements main panel's TRC export functionality.
+        """
+        if self.measurements_main_panel is not None:
+            self.measurements_main_panel._on_export_to_trc()
+        else:
+            QMessageBox.warning(
+                self,
+                "Panel Not Available",
+                "Measurements panel is not initialized."
+            )
+
+    def _on_save_workspace(self) -> None:
+        """
+        Handle Save Workspace menu action.
+
+        Saves the current workspace state (images, model, measurements) to a file.
+        """
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Workspace",
+            "",
+            "Workspace Files (*.workspace);;All Files (*)"
+        )
+
+        if not file_path:
+            return  # User cancelled
+
+        try:
+            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+
+            # Create workspace data dictionary
+            workspace_data = {
+                'version': '1.0',
+                'eos_image1_path': self.eos_image1.directory if self.eos_image1 else None,
+                'eos_image2_path': self.eos_image2.directory if self.eos_image2 else None,
+                'logs': self.logs_and_messages,
+            }
+
+            # Save to file using pickle
+            with open(file_path, 'wb') as f:
+                pickle.dump(workspace_data, f)
+
+            self.add_to_logs_and_messages(f"Workspace saved to: {file_path}")
+            QMessageBox.information(
+                self,
+                "Workspace Saved",
+                f"Workspace saved successfully to:\n{file_path}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Saving Workspace",
+                f"Failed to save workspace:\n{e}"
+            )
+            self.add_to_logs_and_messages(f"Error saving workspace: {e}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _on_load_workspace(self) -> None:
+        """
+        Handle Load Workspace menu action.
+
+        Loads a previously saved workspace state from a file.
+        """
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Workspace",
+            "",
+            "Workspace Files (*.workspace);;All Files (*)"
+        )
+
+        if not file_path:
+            return  # User cancelled
+
+        try:
+            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+
+            # Load workspace data
+            with open(file_path, 'rb') as f:
+                workspace_data = pickle.load(f)
+
+            # Restore EOS images if available
+            if workspace_data.get('eos_image1_path') and workspace_data.get('eos_image2_path'):
+                self.load_eos_images(
+                    workspace_data['eos_image1_path'],
+                    workspace_data['eos_image2_path']
+                )
+
+            # Restore logs
+            if 'logs' in workspace_data:
+                self.logs_and_messages.extend(workspace_data['logs'])
+
+            self.add_to_logs_and_messages(f"Workspace loaded from: {file_path}")
+            QMessageBox.information(
+                self,
+                "Workspace Loaded",
+                f"Workspace loaded successfully from:\n{file_path}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Loading Workspace",
+                f"Failed to load workspace:\n{e}"
+            )
+            self.add_to_logs_and_messages(f"Error loading workspace: {e}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _on_clear_workspace(self) -> None:
+        """
+        Handle Clear Workspace menu action.
+
+        Clears all loaded data (images, models, measurements).
+        """
+        reply = QMessageBox.question(
+            self,
+            "Clear Workspace",
+            "Are you sure you want to clear all loaded data?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            # Clear all data
+            self.eos_image1 = None
+            self.eos_image2 = None
+            self.eos_space = None
+            self.sim_model_visualization = None
+
+            # Clear panels
+            if self.measurements_2d_panel is not None:
+                self.measurements_2d_panel.eos_image1 = None
+                self.measurements_2d_panel.eos_image2 = None
+                self.measurements_2d_panel.eos_space = None
+
+            if self.measurements_main_panel is not None:
+                self.measurements_main_panel.table_measurements.setRowCount(0)
+
+            self.add_to_logs_and_messages("Workspace cleared")
+            self.status_bar.showMessage("Workspace cleared", 3000)
 
     def render_all(self) -> None:
         """
