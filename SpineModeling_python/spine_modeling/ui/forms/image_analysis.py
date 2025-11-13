@@ -14,14 +14,14 @@ panel integration. Complex logic will be refined during integration testing.
 import os
 from typing import Optional, List
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QPushButton,
+    QMainWindow, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QPushButton,
     QLabel, QStatusBar, QMenuBar, QMenu, QAction, QMessageBox, QApplication
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QCursor
 
 
-class ImageAnalysisForm(QDialog):
+class ImageAnalysisForm(QMainWindow):
     """
     Main image analysis and skeletal modeling workflow coordinator.
 
@@ -86,14 +86,15 @@ class ImageAnalysisForm(QDialog):
         Creates the main window structure with tab widget for different
         work panels and status bar for messages.
         """
-        # Dialog properties
+        # Window properties
         self.setWindowTitle("SpineModeling - Image Analysis")
-        self.setModal(False)
         self.resize(1400, 900)
 
-        # Main layout
+        # Central widget with main layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout()
-        self.setLayout(main_layout)
+        central_widget.setLayout(main_layout)
 
         # Tab widget for different panels
         self.tab_widget = QTabWidget()
@@ -127,9 +128,8 @@ class ImageAnalysisForm(QDialog):
         btn_return.clicked.connect(self.close)
         button_layout.addWidget(btn_return)
 
-        # Status bar
-        self.status_bar = QStatusBar()
-        main_layout.addWidget(self.status_bar)
+        # Status bar (QMainWindow has its own status bar)
+        self.status_bar = self.statusBar()
         self.status_bar.showMessage("Ready")
 
     def _setup_menu(self) -> None:
@@ -139,10 +139,45 @@ class ImageAnalysisForm(QDialog):
         Creates menu actions for loading models, images, and accessing
         various analysis tools.
         """
-        # Note: QDialog doesn't have a native menu bar like QMainWindow
-        # For a production application, consider converting to QMainWindow
-        # For now, we'll skip the menu bar or implement it as a toolbar
-        pass
+        menubar = self.menuBar()
+
+        # File menu
+        file_menu = menubar.addMenu("&File")
+
+        # Import EOS Images action
+        import_action = QAction("&Import EOS Images...", self)
+        import_action.setShortcut("Ctrl+I")
+        import_action.setStatusTip("Import frontal and lateral EOS X-ray images")
+        import_action.triggered.connect(self._on_import_eos_images)
+        file_menu.addAction(import_action)
+
+        file_menu.addSeparator()
+
+        # Exit action
+        exit_action = QAction("E&xit", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.setStatusTip("Close the image analysis window")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        # View menu
+        view_menu = menubar.addMenu("&View")
+
+        # Refresh action
+        refresh_action = QAction("&Refresh", self)
+        refresh_action.setShortcut("F5")
+        refresh_action.setStatusTip("Refresh the current view")
+        refresh_action.triggered.connect(self._on_refresh_clicked)
+        view_menu.addAction(refresh_action)
+
+        # Help menu
+        help_menu = menubar.addMenu("&Help")
+
+        # About action
+        about_action = QAction("&About", self)
+        about_action.setStatusTip("About SpineModeling")
+        about_action.triggered.connect(self._on_about_clicked)
+        help_menu.addAction(about_action)
 
     def _initialize_components(self) -> None:
         """
@@ -355,6 +390,39 @@ class ImageAnalysisForm(QDialog):
         self.add_to_logs_and_messages("Refreshing data...")
         # TODO: Implement refresh logic
         self.status_bar.showMessage("Data refreshed", 3000)
+
+    def _on_import_eos_images(self) -> None:
+        """
+        Handle Import EOS Images menu action.
+
+        Opens the import dialog and loads the selected images.
+        """
+        from spine_modeling.ui.forms.import_eos_images import ImportEosImagesDialog
+
+        dialog = ImportEosImagesDialog(self)
+        if dialog.exec_() == dialog.Accepted:
+            frontal_path, lateral_path = dialog.get_files()
+            if frontal_path and lateral_path:
+                self.load_eos_images(frontal_path, lateral_path)
+                self.status_bar.showMessage(f"Loaded images: {os.path.basename(frontal_path)}, {os.path.basename(lateral_path)}", 5000)
+            else:
+                QMessageBox.warning(self, "Import Error", "Both frontal and lateral images must be selected.")
+
+    def _on_about_clicked(self) -> None:
+        """
+        Handle About menu action.
+
+        Shows information about the application.
+        """
+        QMessageBox.about(
+            self,
+            "About SpineModeling",
+            "<h2>SpineModeling Python Edition</h2>"
+            "<p>Biomechanical spine modeling and analysis system</p>"
+            "<p><b>Version:</b> 1.0</p>"
+            "<p><b>Technologies:</b> Python, PyQt5, VTK, OpenSim</p>"
+            "<p>Translated from C# .NET Windows Forms application</p>"
+        )
 
     def load_eos_images(self, file1: str, file2: str) -> None:
         """

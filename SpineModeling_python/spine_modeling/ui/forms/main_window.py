@@ -81,9 +81,9 @@ class MainWindow(QMainWindow):
             # Import here to avoid circular imports
             from spine_modeling.ui.forms.image_analysis import ImageAnalysisForm
 
-            # Create and show the image analysis form as a dialog
+            # Create and show the image analysis form as a window
             form = ImageAnalysisForm(self)
-            form.exec_()
+            form.show()
 
         except ImportError as e:
             print(f"Error importing ImageAnalysisForm: {e}")
