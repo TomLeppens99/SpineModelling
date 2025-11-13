@@ -456,6 +456,15 @@ class ImageAnalysisForm(QMainWindow):
             # Create EOS space for 3D reconstruction
             self.eos_space = EosSpace(self.eos_image1, self.eos_image2)
 
+            # Set EOS images and space on the 2D measurements panel
+            if self.measurements_2d_panel is not None:
+                self.measurements_2d_panel.eos_image1 = self.eos_image1
+                self.measurements_2d_panel.eos_image2 = self.eos_image2
+                self.measurements_2d_panel.eos_space = self.eos_space
+
+                # Load and display the images in the panel
+                self.measurements_2d_panel.load_images()
+
             self.add_to_logs_and_messages("EOS images loaded successfully")
             self._check_panels_loading()
 
@@ -477,9 +486,11 @@ class ImageAnalysisForm(QMainWindow):
             eos_image: EosImage object to populate.
             dicom_decoder: DicomDecoder instance with file path set.
         """
-        # Implementation deferred to panel when full integration is done
-        # This would involve reading DICOM, extracting calibration data, etc.
-        pass
+        # Read DICOM metadata and calibration parameters
+        eos_image.read_image()
+
+        # Load pixel data for display
+        eos_image.load_pixel_array()
 
     def render_all(self) -> None:
         """
