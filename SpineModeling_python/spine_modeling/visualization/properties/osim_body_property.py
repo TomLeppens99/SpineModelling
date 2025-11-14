@@ -26,29 +26,30 @@ class OsimBodyProperty:
     def __init__(self):
         if vtk is None:
             raise ImportError("VTK is required")
-        
+
         # System properties
         self._object_name: str = ""
         self._object_type: str = ""
         self._mass: float = 0.0
         self._is_visible: bool = True
-        
+        self._is_ground: bool = False  # Flag for ground body
+
         # OpenSim objects
         self._body: Optional[object] = None
         self._mass_center: Optional[object] = None
-        
+
         # Related properties
         self.geometry_property_list: List = []
         self.joint_property: Optional[object] = None
         self.marker_property_list: List = []
-        
+
         # VTK objects
         self.assembly = vtk.vtkAssembly()
         self.transform = vtk.vtkTransform()
         self.axes_actor = vtk.vtkActor()
         self.mass_center_actor = vtk.vtkActor()
         self.vtk_renderwindow: Optional[object] = None
-        
+
         # Context menu (Phase 5)
         self._context_menu = None
     
