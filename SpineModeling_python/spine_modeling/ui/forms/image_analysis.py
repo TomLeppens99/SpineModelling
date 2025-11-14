@@ -560,6 +560,23 @@ class ImageAnalysisForm(QMainWindow):
                 self.measurements_main_panel.eos_image2 = self.eos_image2
                 self.measurements_main_panel.eos_space = self.eos_space
 
+            # Set EOS images and space on the 3D modeling panel and display them
+            if self.modeling_3d_panel is not None:
+                self.modeling_3d_panel.eos_image1 = self.eos_image1
+                self.modeling_3d_panel.eos_image2 = self.eos_image2
+                self.modeling_3d_panel.eos_space = self.eos_space
+
+                # Display the EOS images in 3D space
+                try:
+                    self.modeling_3d_panel.display_eos_in_3d_space(
+                        self.eos_image1,
+                        self.eos_image2,
+                        self.eos_space
+                    )
+                    self.add_to_logs_and_messages("EOS images displayed in 3D space")
+                except Exception as e:
+                    self.add_to_logs_and_messages(f"Note: Could not display EOS images in 3D: {e}")
+
             self.add_to_logs_and_messages("EOS images loaded successfully")
             self._check_panels_loading()
 
@@ -742,9 +759,11 @@ class ImageAnalysisForm(QMainWindow):
 
                     # Add to 3D modeling panel renderer
                     if self.modeling_3d_panel is not None:
-                        # TODO: Add actor to renderer when panel implementation is ready
-                        # self.modeling_3d_panel.add_actor(actor)
-                        pass
+                        # Add the STL actor to the 3D scene
+                        self.modeling_3d_panel.add_stl_actor(
+                            actor,
+                            name=os.path.basename(file_path)
+                        )
 
                     loaded_count += 1
                     self.add_to_logs_and_messages(f"Loaded STL mesh: {os.path.basename(file_path)}")

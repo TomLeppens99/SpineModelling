@@ -165,6 +165,10 @@ class Modeling3DPanel(QWidget):
         # Ground reference axes
         self.ground_axes = None
 
+        # EOS image actors for 3D visualization
+        self.eos_image_actor1 = None
+        self.eos_image_actor2 = None
+
         # Mouse tracking for double-click detection
         self._previous_position_x: int = 0
         self._previous_position_y: int = 0
@@ -754,7 +758,8 @@ class Modeling3DPanel(QWidget):
             return
 
         # Display EOS images in 3D space
-        # self._display_eos_images_in_3d()
+        if self.eos_space is not None:
+            self.display_eos_in_3d_space(self.eos_image1, self.eos_image2, self.eos_space)
 
         print("EOS images and model integrated")
 
@@ -802,6 +807,177 @@ class Modeling3DPanel(QWidget):
 
         except Exception as e:
             print(f"Error adding marker: {e}")
+
+    def add_stl_actor(self, actor: vtk.vtkActor, name: Optional[str] = None) -> None:
+        """
+        Add an STL mesh actor (e.g., CT-scanned vertebra) to the 3D scene.
+
+        Args:
+            actor: The vtkActor to add to the renderer
+            name: Optional name for the actor (for logging/tracking)
+        """
+        try:
+            if self.renderer is None:
+                print("Error: Renderer not initialized")
+                return
+
+            # Add actor to renderer
+            self.renderer.AddActor(actor)
+
+            # Update the view
+            self.render_window.Render()
+
+            if name:
+                print(f"STL actor '{name}' added to 3D scene")
+            else:
+                print("STL actor added to 3D scene")
+
+        except Exception as e:
+            print(f"Error adding STL actor: {e}")
+
+    def display_eos_in_3d_space(self, eos_image1, eos_image2, eos_space) -> None:
+        """
+        Display EOS X-ray images in 3D space at their calibrated positions.
+
+        This method creates vtkImageActors for both frontal and lateral X-ray images,
+        positioning them in 3D space according to the calibration parameters from EosSpace.
+
+        Args:
+            eos_image1: First EOS image (typically frontal view)
+            eos_image2: Second EOS image (typically lateral view)
+            eos_space: EosSpace object containing calibration parameters
+                      (positions and orientations of the X-ray sources)
+
+        Translates from C# UC_3DModelingWorkpanel.DisplayEOSin3Dspace()
+        """
+        try:
+            if self.renderer is None:
+                print("Error: Renderer not initialized")
+                return
+
+            print("Displaying EOS images in 3D space...")
+
+            # Helper function to convert numpy array to VTK image data
+            def numpy_to_vtk_image(pixel_array):
+                """Convert numpy array to vtkImageData."""
+                from vtk.util import numpy_support
+
+                # Get dimensions
+                if len(pixel_array.shape) == 2:
+                    height, width = pixel_array.shape
+                    depth = 1
+                elif len(pixel_array.shape) == 3:
+                    height, width, depth = pixel_array.shape
+                else:
+                    raise ValueError(f"Unsupported array shape: {pixel_array.shape}")
+
+                # Flatten array to 1D (VTK requirement)
+                flat_array = pixel_array.flatten()
+
+                # Convert to VTK array
+                vtk_array = numpy_support.numpy_to_vtk(flat_array, deep=True)
+
+                # Create vtkImageData
+                image_data = vtk.vtkImageData()
+                image_data.SetDimensions(width, height, 1)
+                image_data.GetPointData().SetScalars(vtk_array)
+
+                return image_data
+
+            # Create image actor for first image (frontal)
+            if eos_image1 is not None and eos_image1.pixel_array is not None:
+                self.eos_image_actor1 = vtk.vtkImageActor()
+
+                # Convert pixel array to VTK image data
+                image_data1 = numpy_to_vtk_image(eos_image1.pixel_array)
+                self.eos_image_actor1.SetInputData(image_data1)
+
+                # Set orientation from calibration
+                if hasattr(eos_space, 'OrientationImage1'):
+                    orientation = eos_space.OrientationImage1
+                    self.eos_image_actor1.SetOrientation(
+                        orientation.X if hasattr(orientation, 'X') else 0.0,
+                        orientation.Y if hasattr(orientation, 'Y') else 0.0,
+                        orientation.Z if hasattr(orientation, 'Z') else 0.0
+                    )
+
+                # Set position from calibration
+                if hasattr(eos_space, 'PositionOriginImage1'):
+                    position = eos_space.PositionOriginImage1
+                    self.eos_image_actor1.SetPosition(
+                        position.X if hasattr(position, 'X') else 0.0,
+                        position.Y if hasattr(position, 'Y') else 0.0,
+                        position.Z if hasattr(position, 'Z') else 0.0
+                    )
+
+                # Scale to physical size
+                if eos_image1.pixel_spacing_x > 0 and eos_image1.pixel_spacing_y > 0:
+                    self.eos_image_actor1.SetScale(
+                        eos_image1.pixel_spacing_x,
+                        eos_image1.pixel_spacing_y,
+                        1.0
+                    )
+
+                # Make image non-pickable (so it doesn't interfere with 3D object selection)
+                self.eos_image_actor1.PickableOff()
+
+                # Add to renderer
+                self.renderer.AddActor(self.eos_image_actor1)
+                print("EOS Image 1 (frontal) added to 3D scene")
+
+            # Create image actor for second image (lateral)
+            if eos_image2 is not None and eos_image2.pixel_array is not None:
+                self.eos_image_actor2 = vtk.vtkImageActor()
+
+                # Convert pixel array to VTK image data
+                image_data2 = numpy_to_vtk_image(eos_image2.pixel_array)
+                self.eos_image_actor2.SetInputData(image_data2)
+
+                # Set orientation from calibration
+                if hasattr(eos_space, 'OrientationImage2'):
+                    orientation = eos_space.OrientationImage2
+                    self.eos_image_actor2.SetOrientation(
+                        orientation.X if hasattr(orientation, 'X') else 0.0,
+                        orientation.Y if hasattr(orientation, 'Y') else 0.0,
+                        orientation.Z if hasattr(orientation, 'Z') else 0.0
+                    )
+
+                # Set position from calibration
+                if hasattr(eos_space, 'PositionOriginImage2'):
+                    position = eos_space.PositionOriginImage2
+                    self.eos_image_actor2.SetPosition(
+                        position.X if hasattr(position, 'X') else 0.0,
+                        position.Y if hasattr(position, 'Y') else 0.0,
+                        position.Z if hasattr(position, 'Z') else 0.0
+                    )
+
+                # Scale to physical size
+                if eos_image2.pixel_spacing_x > 0 and eos_image2.pixel_spacing_y > 0:
+                    self.eos_image_actor2.SetScale(
+                        eos_image2.pixel_spacing_x,
+                        eos_image2.pixel_spacing_y,
+                        1.0
+                    )
+
+                # Make image non-pickable
+                self.eos_image_actor2.PickableOff()
+
+                # Add to renderer
+                self.renderer.AddActor(self.eos_image_actor2)
+                print("EOS Image 2 (lateral) added to 3D scene")
+
+            # Reset camera to see all actors
+            self.renderer.ResetCamera()
+
+            # Update the view
+            self.render_window.Render()
+
+            print("EOS images displayed successfully in 3D space")
+
+        except Exception as e:
+            print(f"Error displaying EOS images in 3D space: {e}")
+            import traceback
+            traceback.print_exc()
 
     def render_all(self) -> None:
         """
