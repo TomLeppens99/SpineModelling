@@ -16,8 +16,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
     QPushButton, QSplitter, QGroupBox
 )
-from PyQt5.QtCore import Qt, QPoint, QRect
-from PyQt5.QtGui import QPainter, QPen, QPixmap, QImage, QColor, QMouseEvent
+from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtGui import QPixmap, QImage, QColor, QMouseEvent
 
 
 class Measurements2DPanel(QWidget):

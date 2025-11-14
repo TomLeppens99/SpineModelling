@@ -9,7 +9,6 @@ transformations, and projection/inverse projection methods.
 from __future__ import annotations
 from typing import Tuple, List, Optional
 from dataclasses import dataclass
-import math
 import logging
 
 from spine_modeling.core.position import Position

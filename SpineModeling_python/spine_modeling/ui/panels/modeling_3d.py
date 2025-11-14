@@ -11,7 +11,7 @@ Note: This is a streamlined implementation. VTK integration and complex
 3D operations will be refined during integration testing.
 """
 
-from typing import Optional, List
+from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QGroupBox, QLabel,
     QPushButton, QTreeWidget, QTreeWidgetItem, QCheckBox
@@ -88,6 +88,14 @@ class Modeling3DPanel(QWidget):
         self._previous_position_y: int = 0
         self._number_of_clicks: int = 0
         self._reset_pixel_distance: int = 5
+
+        # UI components (initialized in _setup_ui)
+        self.tree_model = None
+        self.vtk_widget = None
+        self.image1_view = None
+        self.image2_view = None
+        self.chk_show_muscles = None
+        self.chk_show_markers = None
 
         self._setup_ui()
 
@@ -245,11 +253,10 @@ class Modeling3DPanel(QWidget):
         3D visualization. Fails gracefully if VTK is not available.
         """
         try:
-            import vtk
-
             # TODO: Initialize VTK components when QVTKRenderWindowInteractor
             # is available. For now, this is a placeholder.
             #
+            # import vtk
             # self.render_window = vtk.vtkRenderWindow()
             # self.renderer = vtk.vtkRenderer()
             # self.render_window.AddRenderer(self.renderer)

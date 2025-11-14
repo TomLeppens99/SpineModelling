@@ -142,7 +142,7 @@ class SkeletalModelingPreferencesDialog(QDialog):
             file_path: Path to the preferences file.
         """
         try:
-            with open(file_path, "r") as file:
+            with open(file_path, "r", encoding="utf-8") as file:
                 for line in file:
                     stripped_line = line.strip()
                     if stripped_line:
@@ -232,7 +232,7 @@ class SkeletalModelingPreferencesDialog(QDialog):
             lines: List of directory paths to save.
         """
         try:
-            with open(file_path, "w") as file:
+            with open(file_path, "w", encoding="utf-8") as file:
                 for line in lines:
                     file.write(f"{line}\n")
         except Exception as e:

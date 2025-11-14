@@ -97,11 +97,8 @@ class OsimBodyProperty:
         for geom_prop in self.geometry_property_list:
             if geom_prop.vtk_actor:
                 # Restore original color from geom_prop
-                geom_prop.vtk_actor.GetProperty().SetColor(
-                    geom_prop._geom_color_r,
-                    geom_prop._geom_color_g,
-                    geom_prop._geom_color_b
-                )
+                r, g, b = geom_prop.geom_color_normalized
+                geom_prop.vtk_actor.GetProperty().SetColor(r, g, b)
     
     def hide_programmatically(self):
         """Hide body by setting opacity to 0."""

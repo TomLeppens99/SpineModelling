@@ -330,7 +330,7 @@ class OsimControlPointProperty:
         # Update OpenSim model
         self.path_point.setLocation(state, new_loc)
         self.path_point.update(state)
-        self.parent_body_prop._body.updateDisplayer(state)
+        self.parent_body_prop.body.updateDisplayer(state)
     
     def __repr__(self) -> str:
         """Return string representation of the control point property."""

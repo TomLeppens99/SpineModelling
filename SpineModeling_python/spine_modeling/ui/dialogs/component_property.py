@@ -10,7 +10,6 @@ Original class: frmComponentProperty
 
 from typing import Optional, Any
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QWidget
-from PyQt5.QtCore import Qt
 
 
 class ComponentPropertyDialog(QDialog):

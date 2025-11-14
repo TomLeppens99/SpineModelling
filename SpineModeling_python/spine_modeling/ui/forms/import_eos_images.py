@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QDialog, QLabel, QLineEdit, QPushButton, QGridLayout,
     QFileDialog, QWidget, QApplication
 )
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QCursor
 
 

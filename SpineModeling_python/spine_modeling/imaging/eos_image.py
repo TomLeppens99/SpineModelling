@@ -7,7 +7,7 @@ required for 3D reconstruction and biomechanical analysis.
 """
 
 from __future__ import annotations
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 from pathlib import Path
 import logging
@@ -165,12 +165,12 @@ class EosImage:
             return True
 
         except AttributeError as e:
-            logger.error(f"Missing required DICOM tag: {e}")
+            logger.error("Missing required DICOM tag: %s", e)
             raise ValueError(
                 f"Required DICOM tag missing in file {self.directory}: {e}"
             ) from e
         except Exception as e:
-            logger.error(f"Error reading DICOM file: {e}")
+            logger.error("Error reading DICOM file: %s", e)
             return False
 
     def read_image_tags_to_properties(self) -> bool:
@@ -264,7 +264,7 @@ class EosImage:
             return True
 
         except Exception as e:
-            logger.error(f"Error reading DICOM tags: {e}")
+            logger.error("Error reading DICOM tags: %s", e)
             return False
 
     def _build_dicom_tags_dict(self) -> None:
@@ -293,7 +293,7 @@ class EosImage:
                     "value": tag_value,
                 }
             except Exception as e:
-                logger.warning(f"Could not process DICOM tag {element.tag}: {e}")
+                logger.warning("Could not process DICOM tag %s: %s", element.tag, e)
 
     def get_dicom_tag_table(self) -> list:
         """
@@ -313,7 +313,7 @@ class EosImage:
             self._build_dicom_tags_dict()
 
         table_data = []
-        for tag_key, tag_info in self.dicom_tags.items():
+        for tag_info in self.dicom_tags.values():
             table_data.append({
                 "group": tag_info["group"],
                 "element": tag_info["element"],
@@ -353,7 +353,7 @@ class EosImage:
             self.pixel_array = self.dicom_dataset.pixel_array
             return self.pixel_array
         except Exception as e:
-            logger.error(f"Error loading pixel array: {e}")
+            logger.error("Error loading pixel array: %s", e)
             return None
 
     def get_patient_name(self) -> str:

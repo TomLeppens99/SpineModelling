@@ -58,7 +58,6 @@ class EllipseFit:
 
     def __init__(self):
         """Initialize the ellipse fitter."""
-        pass
 
     def fit(self, points: List) -> Optional[np.ndarray]:
         """
@@ -143,8 +142,8 @@ class EllipseFit:
         # T = -inv(S3) * S2' - for getting a2 from a1
         try:
             S3_inv = np.linalg.inv(S3)
-        except np.linalg.LinAlgError:
-            raise RuntimeError("Failed to invert S3 matrix")
+        except np.linalg.LinAlgError as exc:
+            raise RuntimeError("Failed to invert S3 matrix") from exc
 
         T = -S3_inv @ S2.T
 
@@ -167,8 +166,8 @@ class EllipseFit:
         # Solve eigensystem
         try:
             eigenvalues, eigenvectors = np.linalg.eig(M)
-        except np.linalg.LinAlgError:
-            raise RuntimeError("Failed to compute eigenvalues/eigenvectors")
+        except np.linalg.LinAlgError as exc:
+            raise RuntimeError("Failed to compute eigenvalues/eigenvectors") from exc
 
         # Find eigenvector that satisfies ellipse constraint
         # Constraint: 4*a1[0]*a1[2] - a1[1]^2 > 0
@@ -375,7 +374,7 @@ class EllipseFit:
         try:
             (cx, cy), (a, b), angle_deg = EllipseFit.get_ellipse_parameters(coefficients)
         except ValueError as e:
-            raise ValueError(f"Cannot generate ellipse points: {e}")
+            raise ValueError(f"Cannot generate ellipse points: {e}") from e
 
         # Generate parametric points
         theta = np.linspace(0, 2 * np.pi, num_points)

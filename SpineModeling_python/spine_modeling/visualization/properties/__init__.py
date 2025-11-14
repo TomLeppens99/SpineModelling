@@ -19,7 +19,17 @@ Classes:
     OsimGroupElement: Hierarchical grouping for model elements
 """
 
-# Property classes will be imported here as they are translated
+from .osim_model_property import OsimModelProperty
+from .osim_body_property import OsimBodyProperty
+from .osim_joint_property import OsimJointProperty
+from .osim_force_property import OsimForceProperty
+from .osim_geometry_property import OsimGeometryProperty
+from .osim_marker_property import OsimMarkerProperty
+from .osim_control_point_property import OsimControlPointProperty
+from .osim_joint_coordinate_property import OsimJointCoordinateProperty
+from .osim_muscle_actuator_line_property import OsimMuscleActuatorLineProperty
+from .osim_group_element import OsimGroupElement
+
 __all__ = [
     "OsimModelProperty",
     "OsimBodyProperty",

@@ -90,10 +90,10 @@ class OsimGeometryProperty:
     
     @property
     def geom_color(self):
-        return (int(self._geom_color_r * 255), 
-                int(self._geom_color_g * 255), 
+        return (int(self._geom_color_r * 255),
+                int(self._geom_color_g * 255),
                 int(self._geom_color_b * 255))
-    
+
     @geom_color.setter
     def geom_color(self, value):
         r, g, b = value
@@ -104,6 +104,11 @@ class OsimGeometryProperty:
             self._vtk_actor.GetProperty().SetColor(
                 self._geom_color_r, self._geom_color_g, self._geom_color_b
             )
+
+    @property
+    def geom_color_normalized(self):
+        """Get normalized RGB color values (0.0-1.0) for VTK."""
+        return (self._geom_color_r, self._geom_color_g, self._geom_color_b)
     
     def read_geometry_properties(self, display_geom, model):
         """Read properties from OpenSim DisplayGeometry."""

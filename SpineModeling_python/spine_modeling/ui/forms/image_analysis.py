@@ -15,9 +15,9 @@ import os
 from typing import Optional, List
 from PyQt5.QtWidgets import (
     QMainWindow, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QPushButton,
-    QLabel, QStatusBar, QMenuBar, QMenu, QAction, QMessageBox, QApplication
+    QLabel, QAction, QMessageBox, QApplication
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QCursor
 
 
@@ -308,7 +308,6 @@ class ImageAnalysisForm(QMainWindow):
         Implementation deferred to the 3D modeling panel.
         """
         # Deferred to UC_3DModelingWorkpanel implementation
-        pass
 
     def add_to_logs_and_messages(self, message: str) -> None:
         """

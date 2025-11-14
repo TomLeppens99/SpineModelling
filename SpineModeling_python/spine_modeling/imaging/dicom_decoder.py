@@ -30,7 +30,7 @@ Example Usage:
 import struct
 import os
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from .dicom_dictionary import DicomDictionary
 
 

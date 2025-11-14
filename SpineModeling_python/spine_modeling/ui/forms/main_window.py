@@ -10,7 +10,6 @@ Original class: btnmuscular (Form1)
 
 from typing import Optional
 from PyQt5.QtWidgets import QMainWindow, QPushButton, QWidget
-from PyQt5.QtCore import QSize, Qt
 
 
 class MainWindow(QMainWindow):
@@ -109,7 +108,6 @@ class MainWindow(QMainWindow):
 
         Note: This method is not currently used but matches the C# code structure.
         """
-        pass
 
     def _on_ms_clicked(self) -> None:
         """
@@ -117,7 +115,6 @@ class MainWindow(QMainWindow):
 
         Note: This method is not currently used but matches the C# code structure.
         """
-        pass
 
     def _on_compare_models_clicked(self) -> None:
         """
@@ -125,7 +122,6 @@ class MainWindow(QMainWindow):
 
         Note: This method is not currently used but matches the C# code structure.
         """
-        pass
 
     def _on_perturbator_clicked(self) -> None:
         """
@@ -133,7 +129,6 @@ class MainWindow(QMainWindow):
 
         Note: This method is not currently used but matches the C# code structure.
         """
-        pass
 
 
 def main():

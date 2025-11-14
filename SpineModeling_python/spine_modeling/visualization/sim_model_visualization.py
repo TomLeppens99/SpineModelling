@@ -7,7 +7,7 @@ This is a streamlined implementation focusing on core functionality. Full implem
 will be refined during testing and integration phases.
 """
 
-from typing import List, Optional, Dict
+from typing import List, Optional
 import os
 
 try:
@@ -289,7 +289,6 @@ class SimModelVisualization:
     def change_visibility(self) -> None:
         """Toggle visibility of all model components."""
         # Implementation depends on specific visibility requirements
-        pass
     
     def change_bodies_pickable(self, value: bool) -> None:
         """Enable or disable picking for all body actors."""

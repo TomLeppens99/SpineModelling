@@ -10,7 +10,6 @@ Original class: frmLogsAndMessages
 
 from typing import Optional
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QWidget
-from PyQt5.QtCore import Qt
 
 
 class LogsAndMessagesDialog(QDialog):
