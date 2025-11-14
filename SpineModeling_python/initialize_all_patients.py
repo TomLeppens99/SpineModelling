@@ -50,8 +50,22 @@ def main():
 
         # Initialize database
         db_manager = DatabaseManager(db_url)
-        db_manager.initialize_database()
-        print(f"✓ Database initialized: {db_path}")
+
+        try:
+            db_manager.initialize_database()
+            print(f"✓ Database initialized: {db_path}")
+        except Exception as db_error:
+            if "no such column" in str(db_error):
+                print(f"\n❌ Database schema is outdated!")
+                print(f"\nYour existing database at:")
+                print(f"  {db_path}")
+                print(f"\nneeds to be migrated to the new schema.")
+                print(f"\nPlease run the migration script first:")
+                print(f"  python migrate_database.py")
+                print(f"\nThen run this script again.")
+                return 1
+            else:
+                raise
 
         # Initialize patients
         data_manager = PatientDataManager()
