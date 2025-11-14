@@ -38,6 +38,7 @@ class Subject(Base):
         weight: Subject's weight in kg
         created_date: Timestamp when record was created
         notes: Additional notes about the subject
+        data_folder: Path to the patient's data folder
     """
     __tablename__ = "subjects"
 
@@ -50,12 +51,53 @@ class Subject(Base):
     weight = Column(Float, nullable=True)  # kg
     created_date = Column(DateTime, default=datetime.now, nullable=False)
     notes = Column(Text, nullable=True)
+    data_folder = Column(String(500), nullable=True)  # Path to patient data folder
 
-    # Relationship to measurements
+    # Relationship to measurements and images
     measurements = relationship("Measurement", back_populates="subject", cascade="all, delete-orphan")
+    images = relationship("PatientImage", back_populates="subject", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Subject(id={self.subject_id}, code='{self.subject_code}', name='{self.name}')>"
+
+
+class PatientImage(Base):
+    """
+    Represents an image file (EOS or CT) associated with a patient.
+
+    Attributes:
+        image_id: Primary key, auto-incrementing image identifier
+        subject_id: Foreign key to subject
+        image_type: Type of image (EOS_Frontal, EOS_Lateral, CT)
+        vertebra_level: Vertebra level for CT images (e.g., "L2", "T12", "Sacrum")
+        file_path: Relative path to the image file
+        file_name: Original filename
+        upload_date: When the image was uploaded
+        file_size: File size in bytes
+        notes: Additional notes about the image
+    """
+    __tablename__ = "patient_images"
+
+    image_id = Column(Integer, primary_key=True, autoincrement=True)
+    subject_id = Column(Integer, ForeignKey("subjects.subject_id"), nullable=False, index=True)
+    image_type = Column(String(50), nullable=False)  # EOS_Frontal, EOS_Lateral, CT
+    vertebra_level = Column(String(20), nullable=True)  # L2, T12, Sacrum, etc. (for CT images)
+    file_path = Column(String(500), nullable=False)  # Relative path to image file
+    file_name = Column(String(255), nullable=False)  # Original filename
+    upload_date = Column(DateTime, default=datetime.now, nullable=False)
+    file_size = Column(Integer, nullable=True)  # bytes
+    notes = Column(Text, nullable=True)
+
+    # Relationship to subject
+    subject = relationship("Subject", back_populates="images")
+
+    def __repr__(self):
+        return (
+            f"<PatientImage(id={self.image_id}, "
+            f"subject_id={self.subject_id}, "
+            f"type='{self.image_type}', "
+            f"vertebra='{self.vertebra_level}')>"
+        )
 
 
 class Measurement(Base):
@@ -328,6 +370,109 @@ class DatabaseManager:
         ).first()
         if measurement:
             session.delete(measurement)
+            session.commit()
+            return True
+        return False
+
+    # PatientImage operations
+    def create_patient_image(
+        self,
+        subject_id: int,
+        image_type: str,
+        file_path: str,
+        file_name: str,
+        vertebra_level: str = None,
+        **kwargs
+    ) -> PatientImage:
+        """
+        Create a new patient image record.
+
+        Args:
+            subject_id: Foreign key to subject
+            image_type: Type of image (EOS_Frontal, EOS_Lateral, CT)
+            file_path: Relative path to the image file
+            file_name: Original filename
+            vertebra_level: Vertebra level for CT images (optional)
+            **kwargs: Additional image attributes
+
+        Returns:
+            Created PatientImage object
+        """
+        session = self.get_session()
+        image = PatientImage(
+            subject_id=subject_id,
+            image_type=image_type,
+            file_path=file_path,
+            file_name=file_name,
+            vertebra_level=vertebra_level,
+            **kwargs
+        )
+        session.add(image)
+        session.commit()
+        session.refresh(image)
+        return image
+
+    def get_images_by_subject(self, subject_id: int):
+        """
+        Get all images for a subject.
+
+        Args:
+            subject_id: Subject ID
+
+        Returns:
+            List of PatientImage objects
+        """
+        session = self.get_session()
+        return session.query(PatientImage).filter(PatientImage.subject_id == subject_id).all()
+
+    def get_images_by_type(self, subject_id: int, image_type: str):
+        """
+        Get images of a specific type for a subject.
+
+        Args:
+            subject_id: Subject ID
+            image_type: Image type (EOS_Frontal, EOS_Lateral, CT)
+
+        Returns:
+            List of PatientImage objects
+        """
+        session = self.get_session()
+        return session.query(PatientImage).filter(
+            PatientImage.subject_id == subject_id,
+            PatientImage.image_type == image_type
+        ).all()
+
+    def get_images_by_vertebra(self, subject_id: int, vertebra_level: str):
+        """
+        Get CT images for a specific vertebra level.
+
+        Args:
+            subject_id: Subject ID
+            vertebra_level: Vertebra level (e.g., "L2", "T12")
+
+        Returns:
+            List of PatientImage objects
+        """
+        session = self.get_session()
+        return session.query(PatientImage).filter(
+            PatientImage.subject_id == subject_id,
+            PatientImage.vertebra_level == vertebra_level
+        ).all()
+
+    def delete_patient_image(self, image_id: int) -> bool:
+        """
+        Delete patient image record.
+
+        Args:
+            image_id: Image ID to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        session = self.get_session()
+        image = session.query(PatientImage).filter(PatientImage.image_id == image_id).first()
+        if image:
+            session.delete(image)
             session.commit()
             return True
         return False
