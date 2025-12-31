@@ -253,12 +253,20 @@ class CircularMarkerDetector:
     """
     Automatic detection of circular markers in EOS X-ray images.
 
-    Uses OpenCV's Hough Circle Transform and/or blob detection to find
-    circular markers automatically, reducing manual annotation effort.
+    Optimized for detecting radiopaque markers (typically metal beads) in
+    EOS biplanar X-ray images. Uses multiple detection methods:
+    1. Hough Circle Transform for well-defined circles
+    2. Blob detection for varying contrast markers
+    3. Adaptive thresholding for low-contrast regions
+
+    The detector is specifically tuned for:
+    - High dynamic range DICOM images (16-bit)
+    - Metal markers that appear as bright spots on X-rays
+    - Cluster markers (3mm) and single markers (5mm)
 
     Example:
-        >>> detector = CircularMarkerDetector()
-        >>> markers = detector.detect(eos_image)
+        >>> detector = CircularMarkerDetector(sensitivity=0.7)
+        >>> markers = detector.detect(pixel_array, pixel_spacing=0.000179)
         >>> for marker in markers:
         ...     print(f"Marker at ({marker.x}, {marker.y}), r={marker.radius}")
     """
@@ -273,33 +281,71 @@ class CircularMarkerDetector:
         Initialize marker detector.
 
         Args:
-            min_radius_mm: Minimum marker radius in mm
-            max_radius_mm: Maximum marker radius in mm
-            sensitivity: Detection sensitivity (0-1, higher = more detections)
+            min_radius_mm: Minimum marker radius in mm (default: 1.0)
+            max_radius_mm: Maximum marker radius in mm (default: 4.0)
+            sensitivity: Detection sensitivity 0-1 (default: 0.5)
+                        Higher values detect more markers but may include false positives
         """
         if not HAS_OPENCV:
             raise ImportError("OpenCV (cv2) is required for marker detection")
 
         self.min_radius_mm = min_radius_mm
         self.max_radius_mm = max_radius_mm
-        self.sensitivity = sensitivity
+        self.sensitivity = np.clip(sensitivity, 0.1, 1.0)
+
+    def _preprocess_xray(self, image: np.ndarray) -> np.ndarray:
+        """
+        Preprocess X-ray image for marker detection.
+
+        Applies contrast enhancement and noise reduction optimized for
+        detecting metal markers in EOS X-ray images.
+
+        Args:
+            image: Input grayscale image (8-bit or 16-bit)
+
+        Returns:
+            Preprocessed 8-bit image
+        """
+        # Convert to 8-bit if needed
+        if image.dtype == np.uint16:
+            # Use histogram-based normalization for DICOM images
+            # This preserves marker visibility better than simple scaling
+            p_low, p_high = np.percentile(image, [1, 99])
+            image_clipped = np.clip(image, p_low, p_high)
+            gray = ((image_clipped - p_low) / (p_high - p_low) * 255).astype(np.uint8)
+        elif image.dtype != np.uint8:
+            gray = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        else:
+            gray = image.copy()
+
+        # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        # This enhances local contrast, making markers more visible
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+
+        # Denoise while preserving edges (markers have sharp edges)
+        denoised = cv2.bilateralFilter(enhanced, d=5, sigmaColor=50, sigmaSpace=50)
+
+        return denoised
 
     def detect(
         self,
         image: np.ndarray,
         pixel_spacing: Optional[float] = None,
-        eos_image: Optional[object] = None
+        eos_image: Optional[object] = None,
+        use_preprocessing: bool = True
     ) -> List[DetectedMarker]:
         """
         Detect circular markers in an image.
 
         Args:
-            image: Grayscale image array (or will be converted)
-            pixel_spacing: Pixel spacing in meters
+            image: Grayscale image array (8-bit, 16-bit, or color)
+            pixel_spacing: Pixel spacing in meters (e.g., 0.000179 for 0.179mm)
             eos_image: EosImage object (alternative source for image and spacing)
+            use_preprocessing: Apply X-ray specific preprocessing (default: True)
 
         Returns:
-            List of DetectedMarker objects
+            List of DetectedMarker objects sorted by confidence (highest first)
         """
         # Get image and pixel spacing
         if eos_image is not None:
@@ -311,20 +357,29 @@ class CircularMarkerDetector:
         if image is None:
             raise ValueError("Image data required")
 
+        logger.debug(f"Detecting markers: image shape={image.shape}, dtype={image.dtype}")
+
         # Convert to grayscale if needed
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
-            gray = image.copy()
+            gray = image
 
-        # Normalize to 8-bit if needed (DICOM images may be 16-bit)
-        if gray.dtype != np.uint8:
-            gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        # Apply preprocessing for X-ray images
+        if use_preprocessing:
+            processed = self._preprocess_xray(gray)
+        else:
+            if gray.dtype != np.uint8:
+                processed = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            else:
+                processed = gray.copy()
 
         # Calculate radius range in pixels
         if pixel_spacing is not None:
             min_radius_px = int((self.min_radius_mm / 1000.0) / pixel_spacing)
             max_radius_px = int((self.max_radius_mm / 1000.0) / pixel_spacing)
+            logger.debug(f"Radius range: {min_radius_px}-{max_radius_px} pixels "
+                        f"({self.min_radius_mm}-{self.max_radius_mm} mm)")
         else:
             # Default pixel-based range if no spacing available
             min_radius_px = 5
@@ -336,21 +391,30 @@ class CircularMarkerDetector:
 
         markers = []
 
-        # Method 1: Hough Circle Transform
+        # Method 1: Hough Circle Transform on preprocessed image
         hough_markers = self._detect_hough_circles(
-            gray, min_radius_px, max_radius_px
+            processed, min_radius_px, max_radius_px
         )
         markers.extend(hough_markers)
+        logger.debug(f"Hough detection found {len(hough_markers)} markers")
 
-        # Method 2: Blob Detection (complementary)
+        # Method 2: Blob Detection (complementary) on preprocessed image
         blob_markers = self._detect_blobs(
-            gray, min_radius_px, max_radius_px
+            processed, min_radius_px, max_radius_px
         )
+        logger.debug(f"Blob detection found {len(blob_markers)} markers")
+
+        # Method 3: Bright spot detection for metal markers
+        bright_markers = self._detect_bright_spots(
+            processed, min_radius_px, max_radius_px
+        )
+        logger.debug(f"Bright spot detection found {len(bright_markers)} markers")
 
         # Merge results, removing duplicates
         markers = self._merge_detections(markers, blob_markers)
+        markers = self._merge_detections(markers, bright_markers)
 
-        logger.info(f"Detected {len(markers)} circular markers")
+        logger.info(f"Total detected: {len(markers)} circular markers")
         return markers
 
     def _detect_hough_circles(
@@ -441,6 +505,83 @@ class CircularMarkerDetector:
                 y=kp.pt[1],
                 radius=kp.size / 2,
                 confidence=0.6  # Blob detection is less precise
+            ))
+
+        return markers
+
+    def _detect_bright_spots(
+        self,
+        gray: np.ndarray,
+        min_radius: int,
+        max_radius: int
+    ) -> List[DetectedMarker]:
+        """
+        Detect bright circular spots (metal markers in X-rays).
+
+        Metal markers appear as bright spots on X-ray images due to their
+        high radiodensity. This method uses thresholding and contour analysis
+        to find circular bright regions.
+
+        Args:
+            gray: Preprocessed grayscale image
+            min_radius: Minimum radius in pixels
+            max_radius: Maximum radius in pixels
+
+        Returns:
+            List of DetectedMarker objects
+        """
+        markers = []
+
+        # Calculate adaptive threshold based on sensitivity
+        # Higher sensitivity = lower threshold = more detections
+        threshold_percentile = 95 - (self.sensitivity * 20)  # 75-95 percentile
+
+        # Find bright regions using percentile-based threshold
+        threshold_value = np.percentile(gray, threshold_percentile)
+        _, binary = cv2.threshold(gray, int(threshold_value), 255, cv2.THRESH_BINARY)
+
+        # Morphological operations to clean up
+        kernel_size = max(3, min_radius // 2)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+
+        # Find contours
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for contour in contours:
+            # Filter by area
+            area = cv2.contourArea(contour)
+            min_area = np.pi * min_radius ** 2
+            max_area = np.pi * max_radius ** 2
+
+            if area < min_area * 0.5 or area > max_area * 2:
+                continue
+
+            # Check circularity
+            perimeter = cv2.arcLength(contour, True)
+            if perimeter == 0:
+                continue
+
+            circularity = 4 * np.pi * area / (perimeter ** 2)
+            if circularity < 0.6:  # Must be fairly circular
+                continue
+
+            # Get enclosing circle
+            (x, y), radius = cv2.minEnclosingCircle(contour)
+
+            # Check radius bounds
+            if radius < min_radius * 0.7 or radius > max_radius * 1.3:
+                continue
+
+            # Calculate confidence based on circularity
+            confidence = min(0.9, circularity * 0.9)
+
+            markers.append(DetectedMarker(
+                x=float(x),
+                y=float(y),
+                radius=float(radius),
+                confidence=confidence
             ))
 
         return markers

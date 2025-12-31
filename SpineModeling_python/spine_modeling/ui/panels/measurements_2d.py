@@ -362,54 +362,274 @@ class Measurements2DPanel(QWidget):
 
     def _on_auto_detect_clicked(self) -> None:
         """Handle Auto Detect button click - detect circular markers automatically."""
+        # Show configuration dialog first
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QSpinBox, QDialogButtonBox, QProgressDialog, QComboBox, QCheckBox
+        from PyQt5.QtCore import Qt
+
+        # Check if images are loaded
+        if self.eos_image1 is None and self.eos_image2 is None:
+            QMessageBox.warning(
+                self, "Auto Detection",
+                "No images loaded. Please load EOS images first."
+            )
+            return
+
+        # Create configuration dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Auto Detect Markers")
+        dialog.setMinimumWidth(350)
+        layout = QVBoxLayout(dialog)
+
+        # Marker type selection
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Marker type to detect:"))
+        marker_type_combo = QComboBox()
+        marker_type_combo.addItems(["All markers", "Cluster only (3mm)", "Single only (5mm)"])
+        type_layout.addWidget(marker_type_combo)
+        layout.addLayout(type_layout)
+
+        # Sensitivity slider
+        sens_layout = QHBoxLayout()
+        sens_layout.addWidget(QLabel("Detection sensitivity:"))
+        sensitivity_slider = QSlider(Qt.Horizontal)
+        sensitivity_slider.setRange(1, 10)
+        sensitivity_slider.setValue(5)
+        sensitivity_slider.setTickPosition(QSlider.TicksBelow)
+        sens_label = QLabel("5")
+        sensitivity_slider.valueChanged.connect(lambda v: sens_label.setText(str(v)))
+        sens_layout.addWidget(sensitivity_slider)
+        sens_layout.addWidget(sens_label)
+        layout.addLayout(sens_layout)
+
+        # Min/max radius
+        radius_layout = QHBoxLayout()
+        radius_layout.addWidget(QLabel("Min radius (mm):"))
+        min_radius_spin = QSpinBox()
+        min_radius_spin.setRange(1, 10)
+        min_radius_spin.setValue(1)
+        radius_layout.addWidget(min_radius_spin)
+        radius_layout.addWidget(QLabel("Max radius (mm):"))
+        max_radius_spin = QSpinBox()
+        max_radius_spin.setRange(2, 15)
+        max_radius_spin.setValue(4)
+        radius_layout.addWidget(max_radius_spin)
+        layout.addLayout(radius_layout)
+
+        # Image selection
+        img_layout = QHBoxLayout()
+        detect_img1 = QCheckBox("Detect on Image 1 (Frontal)")
+        detect_img1.setChecked(self.eos_image1 is not None)
+        detect_img1.setEnabled(self.eos_image1 is not None)
+        detect_img2 = QCheckBox("Detect on Image 2 (Lateral)")
+        detect_img2.setChecked(self.eos_image2 is not None)
+        detect_img2.setEnabled(self.eos_image2 is not None)
+        img_layout.addWidget(detect_img1)
+        img_layout.addWidget(detect_img2)
+        layout.addLayout(img_layout)
+
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        # Get configuration values
+        sensitivity = sensitivity_slider.value() / 10.0  # 0.1 to 1.0
+        min_radius_mm = min_radius_spin.value()
+        max_radius_mm = max_radius_spin.value()
+        detect_on_img1 = detect_img1.isChecked()
+        detect_on_img2 = detect_img2.isChecked()
+        marker_type_filter = marker_type_combo.currentIndex()  # 0=All, 1=Cluster, 2=Single
+
+        # Run detection with progress dialog
+        self._run_auto_detection(
+            sensitivity=sensitivity,
+            min_radius_mm=min_radius_mm,
+            max_radius_mm=max_radius_mm,
+            detect_on_img1=detect_on_img1,
+            detect_on_img2=detect_on_img2,
+            marker_type_filter=marker_type_filter
+        )
+
+    def _run_auto_detection(
+        self,
+        sensitivity: float,
+        min_radius_mm: float,
+        max_radius_mm: float,
+        detect_on_img1: bool,
+        detect_on_img2: bool,
+        marker_type_filter: int
+    ) -> None:
+        """
+        Run automatic marker detection with the given parameters.
+
+        Args:
+            sensitivity: Detection sensitivity (0.1 to 1.0)
+            min_radius_mm: Minimum marker radius in mm
+            max_radius_mm: Maximum marker radius in mm
+            detect_on_img1: Whether to detect on image 1
+            detect_on_img2: Whether to detect on image 2
+            marker_type_filter: 0=All, 1=Cluster only, 2=Single only
+        """
+        from PyQt5.QtWidgets import QProgressDialog
+        from PyQt5.QtCore import Qt
+
         try:
-            from ...algorithms.ellipse_template import CircularMarkerDetector, EllipsePlacementManager
+            from ...algorithms.ellipse_template import CircularMarkerDetector, EllipsePlacementManager, MarkerType
+
+            # Show progress dialog
+            progress = QProgressDialog("Detecting markers...", "Cancel", 0, 100, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
 
             detected_count = 0
+            all_detected = []
+
+            # Create detector with specified parameters
+            detector = CircularMarkerDetector(
+                min_radius_mm=min_radius_mm,
+                max_radius_mm=max_radius_mm,
+                sensitivity=sensitivity
+            )
 
             # Detect on image 1
-            if self.eos_image1 is not None:
-                if self._template_manager1 is None:
-                    self._template_manager1 = EllipsePlacementManager(self.eos_image1)
+            if detect_on_img1 and self.eos_image1 is not None:
+                progress.setLabelText("Loading image 1...")
+                progress.setValue(10)
 
-                detected1 = self._template_manager1.auto_detect_markers()
-                detected_count += len(detected1)
+                if progress.wasCanceled():
+                    return
 
-                # Draw detected ellipses
-                for ellipse in detected1:
-                    self._draw_template_ellipse(1, ellipse)
-                    self._save_template_ellipse(1, ellipse)
+                # Ensure pixel array is loaded
+                pixel_array1 = self.eos_image1.load_pixel_array()
+                if pixel_array1 is not None:
+                    progress.setLabelText("Detecting markers on image 1...")
+                    progress.setValue(20)
+
+                    detected1 = detector.detect(
+                        pixel_array1,
+                        pixel_spacing=self.eos_image1.pixel_spacing_x
+                    )
+
+                    progress.setValue(40)
+
+                    # Filter by marker type if specified
+                    for marker in detected1:
+                        # Calculate diameter in mm
+                        diameter_mm = (marker.radius * 2 * self.eos_image1.pixel_spacing_x) * 1000
+
+                        # Filter based on marker type
+                        if marker_type_filter == 1 and diameter_mm > 4.0:  # Cluster only
+                            continue
+                        if marker_type_filter == 2 and diameter_mm <= 4.0:  # Single only
+                            continue
+
+                        # Create EllipseParameters
+                        from ...algorithms.ellipse_template import EllipseParameters
+                        ellipse = EllipseParameters(
+                            center_x=marker.x,
+                            center_y=marker.y,
+                            semi_major=marker.radius,
+                            semi_minor=marker.radius,
+                            angle=0.0,
+                            diameter_mm=diameter_mm,
+                            marker_type=MarkerType.CLUSTER if diameter_mm < 4.0 else MarkerType.SINGLE
+                        )
+
+                        # Draw and save
+                        self._draw_template_ellipse(1, ellipse)
+                        self._save_template_ellipse(1, ellipse)
+                        detected_count += 1
+                        all_detected.append(('Image 1', ellipse))
+
+            if progress.wasCanceled():
+                return
 
             # Detect on image 2
-            if self.eos_image2 is not None:
-                if self._template_manager2 is None:
-                    self._template_manager2 = EllipsePlacementManager(self.eos_image2)
+            if detect_on_img2 and self.eos_image2 is not None:
+                progress.setLabelText("Loading image 2...")
+                progress.setValue(50)
 
-                detected2 = self._template_manager2.auto_detect_markers()
-                detected_count += len(detected2)
+                if progress.wasCanceled():
+                    return
 
-                # Draw detected ellipses
-                for ellipse in detected2:
-                    self._draw_template_ellipse(2, ellipse)
-                    self._save_template_ellipse(2, ellipse)
+                # Ensure pixel array is loaded
+                pixel_array2 = self.eos_image2.load_pixel_array()
+                if pixel_array2 is not None:
+                    progress.setLabelText("Detecting markers on image 2...")
+                    progress.setValue(60)
 
+                    detected2 = detector.detect(
+                        pixel_array2,
+                        pixel_spacing=self.eos_image2.pixel_spacing_x
+                    )
+
+                    progress.setValue(80)
+
+                    # Filter by marker type if specified
+                    for marker in detected2:
+                        # Calculate diameter in mm
+                        diameter_mm = (marker.radius * 2 * self.eos_image2.pixel_spacing_x) * 1000
+
+                        # Filter based on marker type
+                        if marker_type_filter == 1 and diameter_mm > 4.0:  # Cluster only
+                            continue
+                        if marker_type_filter == 2 and diameter_mm <= 4.0:  # Single only
+                            continue
+
+                        # Create EllipseParameters
+                        from ...algorithms.ellipse_template import EllipseParameters
+                        ellipse = EllipseParameters(
+                            center_x=marker.x,
+                            center_y=marker.y,
+                            semi_major=marker.radius,
+                            semi_minor=marker.radius,
+                            angle=0.0,
+                            diameter_mm=diameter_mm,
+                            marker_type=MarkerType.CLUSTER if diameter_mm < 4.0 else MarkerType.SINGLE
+                        )
+
+                        # Draw and save
+                        self._draw_template_ellipse(2, ellipse)
+                        self._save_template_ellipse(2, ellipse)
+                        detected_count += 1
+                        all_detected.append(('Image 2', ellipse))
+
+            progress.setValue(100)
+            progress.close()
+
+            # Show results
             if detected_count > 0:
-                QMessageBox.information(
-                    self, "Auto Detection",
-                    f"Detected {detected_count} circular markers.\n"
-                    "Review and adjust positions if needed."
-                )
+                # Build details message
+                details = f"Detected {detected_count} circular markers:\n\n"
+                for img_name, ellipse in all_detected[:10]:  # Show first 10
+                    details += f"  • {img_name}: ({ellipse.center_x:.0f}, {ellipse.center_y:.0f}) - {ellipse.diameter_mm:.1f}mm\n"
+                if len(all_detected) > 10:
+                    details += f"  ... and {len(all_detected) - 10} more\n"
+                details += "\nReview and adjust positions if needed."
+
+                QMessageBox.information(self, "Auto Detection Complete", details)
             else:
                 QMessageBox.information(
                     self, "Auto Detection",
-                    "No circular markers detected.\n"
-                    "Try adjusting image contrast or use manual placement."
+                    "No circular markers detected.\n\n"
+                    "Tips:\n"
+                    "• Try increasing sensitivity\n"
+                    "• Adjust the radius range\n"
+                    "• Ensure markers are visible in the image\n"
+                    "• Use manual placement for difficult cases"
                 )
 
         except ImportError as e:
             QMessageBox.warning(
                 self, "Auto Detection",
-                f"OpenCV is required for auto-detection:\n{e}"
+                f"OpenCV is required for auto-detection.\n\n"
+                f"Install with: pip install opencv-python\n\n"
+                f"Error: {e}"
             )
         except Exception as e:
             logger.error(f"Auto detection error: {e}", exc_info=True)
