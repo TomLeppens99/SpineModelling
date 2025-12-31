@@ -2,7 +2,7 @@
 
 This module contains key algorithms including ellipse fitting,
 template-based ellipse placement, automatic marker detection,
-coordinate transformations, and biomechanical calculations.
+vertebra detection, coordinate transformations, and biomechanical calculations.
 """
 
 from .ellipse_fit import EllipseFit, fit_ellipse_to_points
@@ -14,6 +14,16 @@ from .ellipse_template import (
     EllipsePlacementManager,
     DetectedMarker,
 )
+from .vertebra_detector import (
+    VertebraDetector,
+    DetectedVertebra,
+    VertebraLevel,
+    VertebraLandmarks,
+    SpineRegionDetector,
+    VertebraSegmenter,
+    VertebraLabeler,
+    detect_vertebrae,
+)
 
 __all__ = [
     # Ellipse fitting (eigenvalue-based)
@@ -23,9 +33,18 @@ __all__ = [
     'EllipseTemplate',
     'EllipseParameters',
     'MarkerType',
-    # Automatic detection
+    # Automatic marker detection
     'CircularMarkerDetector',
     'DetectedMarker',
-    # Workflow manager
+    # Ellipse workflow manager
     'EllipsePlacementManager',
+    # Vertebra detection
+    'VertebraDetector',
+    'DetectedVertebra',
+    'VertebraLevel',
+    'VertebraLandmarks',
+    'SpineRegionDetector',
+    'VertebraSegmenter',
+    'VertebraLabeler',
+    'detect_vertebrae',
 ]
