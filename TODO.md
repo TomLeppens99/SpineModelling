@@ -4,6 +4,54 @@ This document outlines 10 high-impact features to improve workflow efficiency an
 
 ---
 
+## Completed Features
+
+### Template-Based Ellipse Placement (Implemented 2025-12-31)
+
+**Status:** COMPLETED
+
+Based on clinical insight from Saïd: marker ellipses have standardized sizes, eliminating the need for eigenvalue-based fitting.
+
+**Implementation:** `spine_modeling/algorithms/ellipse_template.py`
+
+**Features:**
+- **Fixed-size templates:**
+  - Cluster markers (M, R, L): 3mm diameter
+  - Single markers: 5mm diameter
+  - Custom sizes supported
+
+- **Click-to-place workflow:**
+  - User clicks center point → ellipse appears instantly
+  - No fitting computation required
+  - Can manually adjust if needed
+
+- **Automatic circular marker detection:**
+  - Uses OpenCV Hough Circle Transform
+  - Blob detection as complementary method
+  - Configurable sensitivity and size range
+
+**Usage:**
+```python
+from spine_modeling.algorithms import EllipseTemplate, EllipsePlacementManager
+
+# Quick placement
+template = EllipseTemplate.for_cluster_marker()  # 3mm
+ellipse = template.place_at(x=100, y=200, pixel_spacing=0.000179)
+
+# Or use the manager for full workflow
+manager = EllipsePlacementManager(eos_image)
+ellipse = manager.place_cluster_marker(x=100, y=200)
+
+# Auto-detect all markers
+detected = manager.auto_detect_markers()
+```
+
+**Impact:** Reduces ellipse placement from ~30 manual points to 1 click per marker.
+
+---
+
+## Planned Features
+
 ## 1. Automatic Vertebra Detection and Segmentation
 
 **Priority:** HIGH
