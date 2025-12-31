@@ -78,6 +78,11 @@ class Measurements2DPanel(QWidget):
         self.single_point_being_drawn_im2: bool = False
         self.ellipse_being_drawn_im2: bool = False
 
+        # Template mode state (Saïd's suggestion: fixed-size ellipses)
+        self._template_mode: Optional[str] = None  # 'cluster' (3mm) or 'single' (5mm)
+        self._template_manager1 = None  # EllipsePlacementManager for image 1
+        self._template_manager2 = None  # EllipsePlacementManager for image 2
+
         # Zoom tracking (offset from original image coordinates)
         self.upper_left_corner1 = QPoint(0, 0)
         self.upper_left_corner2 = QPoint(0, 0)
@@ -136,6 +141,25 @@ class Measurements2DPanel(QWidget):
         self.btn_ellipse_mode.setCheckable(True)
         self.btn_ellipse_mode.clicked.connect(self._on_ellipse_mode_clicked)
         toolbar_layout.addWidget(self.btn_ellipse_mode)
+
+        # Template mode buttons (Saïd's suggestion: fixed-size ellipses)
+        self.btn_template_cluster = QPushButton("Cluster (3mm)")
+        self.btn_template_cluster.setCheckable(True)
+        self.btn_template_cluster.setToolTip("Click to place 3mm marker (M, R, L clusters)")
+        self.btn_template_cluster.clicked.connect(self._on_template_cluster_clicked)
+        toolbar_layout.addWidget(self.btn_template_cluster)
+
+        self.btn_template_single = QPushButton("Single (5mm)")
+        self.btn_template_single.setCheckable(True)
+        self.btn_template_single.setToolTip("Click to place 5mm single marker")
+        self.btn_template_single.clicked.connect(self._on_template_single_clicked)
+        toolbar_layout.addWidget(self.btn_template_single)
+
+        # Auto-detect button
+        self.btn_auto_detect = QPushButton("Auto Detect")
+        self.btn_auto_detect.setToolTip("Automatically detect circular markers")
+        self.btn_auto_detect.clicked.connect(self._on_auto_detect_clicked)
+        toolbar_layout.addWidget(self.btn_auto_detect)
 
         toolbar_layout.addStretch()
 
@@ -309,7 +333,222 @@ class Measurements2DPanel(QWidget):
         """Handle Ellipse Mode button click."""
         if self.btn_ellipse_mode.isChecked():
             self.btn_point_mode.setChecked(False)
-            print("Ellipse annotation mode activated")
+            self.btn_template_cluster.setChecked(False)
+            self.btn_template_single.setChecked(False)
+            self._template_mode = None
+            print("Ellipse annotation mode activated (multi-point fitting)")
+
+    def _on_template_cluster_clicked(self) -> None:
+        """Handle Cluster Template (3mm) button click."""
+        if self.btn_template_cluster.isChecked():
+            self.btn_point_mode.setChecked(False)
+            self.btn_ellipse_mode.setChecked(False)
+            self.btn_template_single.setChecked(False)
+            self._template_mode = 'cluster'
+            print("Template mode: Cluster markers (3mm) - click to place")
+        else:
+            self._template_mode = None
+
+    def _on_template_single_clicked(self) -> None:
+        """Handle Single Template (5mm) button click."""
+        if self.btn_template_single.isChecked():
+            self.btn_point_mode.setChecked(False)
+            self.btn_ellipse_mode.setChecked(False)
+            self.btn_template_cluster.setChecked(False)
+            self._template_mode = 'single'
+            print("Template mode: Single markers (5mm) - click to place")
+        else:
+            self._template_mode = None
+
+    def _on_auto_detect_clicked(self) -> None:
+        """Handle Auto Detect button click - detect circular markers automatically."""
+        try:
+            from ...algorithms.ellipse_template import CircularMarkerDetector, EllipsePlacementManager
+
+            detected_count = 0
+
+            # Detect on image 1
+            if self.eos_image1 is not None:
+                if self._template_manager1 is None:
+                    self._template_manager1 = EllipsePlacementManager(self.eos_image1)
+
+                detected1 = self._template_manager1.auto_detect_markers()
+                detected_count += len(detected1)
+
+                # Draw detected ellipses
+                for ellipse in detected1:
+                    self._draw_template_ellipse(1, ellipse)
+                    self._save_template_ellipse(1, ellipse)
+
+            # Detect on image 2
+            if self.eos_image2 is not None:
+                if self._template_manager2 is None:
+                    self._template_manager2 = EllipsePlacementManager(self.eos_image2)
+
+                detected2 = self._template_manager2.auto_detect_markers()
+                detected_count += len(detected2)
+
+                # Draw detected ellipses
+                for ellipse in detected2:
+                    self._draw_template_ellipse(2, ellipse)
+                    self._save_template_ellipse(2, ellipse)
+
+            if detected_count > 0:
+                QMessageBox.information(
+                    self, "Auto Detection",
+                    f"Detected {detected_count} circular markers.\n"
+                    "Review and adjust positions if needed."
+                )
+            else:
+                QMessageBox.information(
+                    self, "Auto Detection",
+                    "No circular markers detected.\n"
+                    "Try adjusting image contrast or use manual placement."
+                )
+
+        except ImportError as e:
+            QMessageBox.warning(
+                self, "Auto Detection",
+                f"OpenCV is required for auto-detection:\n{e}"
+            )
+        except Exception as e:
+            logger.error(f"Auto detection error: {e}", exc_info=True)
+            QMessageBox.warning(
+                self, "Auto Detection Error",
+                f"Error during detection:\n{e}"
+            )
+
+    def _place_template_ellipse(self, image_panel: int, abs_x: int, abs_y: int) -> None:
+        """
+        Place a template ellipse at the clicked position.
+
+        Args:
+            image_panel: 1 for frontal, 2 for lateral
+            abs_x: Absolute X coordinate in image pixels
+            abs_y: Absolute Y coordinate in image pixels
+        """
+        try:
+            from ...algorithms.ellipse_template import EllipseTemplate, EllipsePlacementManager
+
+            # Get the appropriate EOS image
+            eos_image = self.eos_image1 if image_panel == 1 else self.eos_image2
+            if eos_image is None:
+                logger.warning("No EOS image loaded for template placement")
+                return
+
+            # Initialize manager if needed
+            if image_panel == 1:
+                if self._template_manager1 is None:
+                    self._template_manager1 = EllipsePlacementManager(eos_image)
+                manager = self._template_manager1
+            else:
+                if self._template_manager2 is None:
+                    self._template_manager2 = EllipsePlacementManager(eos_image)
+                manager = self._template_manager2
+
+            # Place ellipse based on template mode
+            if self._template_mode == 'cluster':
+                ellipse = manager.place_cluster_marker(abs_x, abs_y)
+            else:  # 'single'
+                ellipse = manager.place_single_marker(abs_x, abs_y)
+
+            logger.info(f"Placed {self._template_mode} marker at ({abs_x}, {abs_y})")
+
+            # Draw the ellipse on the image
+            self._draw_template_ellipse(image_panel, ellipse)
+
+            # Save to database
+            self._save_template_ellipse(image_panel, ellipse)
+
+        except Exception as e:
+            logger.error(f"Error placing template ellipse: {e}", exc_info=True)
+
+    def _draw_template_ellipse(self, image_panel: int, ellipse) -> None:
+        """
+        Draw a template ellipse on the image.
+
+        Args:
+            image_panel: 1 for frontal, 2 for lateral
+            ellipse: EllipseParameters object
+        """
+        # Get the image label and current pixmap
+        image_label = self.image1_label if image_panel == 1 else self.image2_label
+        pixmap = image_label.pixmap()
+        if pixmap is None:
+            return
+
+        # Create a painter to draw on the pixmap
+        from PyQt5.QtGui import QPainter, QPen, QColor
+
+        painter = QPainter(pixmap)
+        pen = QPen(QColor(0, 255, 0), 2)  # Green, 2px width
+        painter.setPen(pen)
+
+        # Calculate ellipse rectangle
+        cx = int(ellipse.center_x)
+        cy = int(ellipse.center_y)
+        rx = int(ellipse.semi_major)
+        ry = int(ellipse.semi_minor)
+
+        # Draw ellipse
+        painter.drawEllipse(QPoint(cx, cy), rx, ry)
+
+        # Draw center crosshair
+        cross_size = 5
+        painter.drawLine(cx - cross_size, cy, cx + cross_size, cy)
+        painter.drawLine(cx, cy - cross_size, cx, cy + cross_size)
+
+        painter.end()
+
+        # Update the label
+        image_label.setPixmap(pixmap)
+        image_label.update()
+
+    def _save_template_ellipse(self, image_panel: int, ellipse) -> None:
+        """
+        Save a template ellipse to the database.
+
+        Args:
+            image_panel: 1 for frontal, 2 for lateral
+            ellipse: EllipseParameters object
+        """
+        if self.sql_db is None or self.subject is None:
+            return
+
+        try:
+            image_type = "EOS_Frontal" if image_panel == 1 else "EOS_Lateral"
+            marker_type = ellipse.marker_type.name if hasattr(ellipse, 'marker_type') else "TEMPLATE"
+
+            subject_code = getattr(self.subject, 'subject_code', 'DEFAULT')
+            subject_obj = self.sql_db.get_subject_by_code(subject_code)
+
+            if subject_obj:
+                measurement_name = f"Template {marker_type} {image_type}"
+                self.sql_db.create_measurement(
+                    subject_id=subject_obj.subject_id,
+                    measurement_name=measurement_name,
+                    measurement_type="Template",
+                    image_type=image_type,
+                    ellipse_center_x=float(ellipse.center_x),
+                    ellipse_center_y=float(ellipse.center_y),
+                    ellipse_major_axis=float(ellipse.semi_major),
+                    ellipse_minor_axis=float(ellipse.semi_minor),
+                    ellipse_angle=float(ellipse.angle),
+                    measurement_value=float(ellipse.diameter_mm),
+                    measurement_unit="mm",
+                    user="User",
+                    comment=f"{ellipse.diameter_mm}mm template marker",
+                    measurement_date=datetime.now()
+                )
+
+                logger.info(f"Saved template ellipse to database: {measurement_name}")
+
+                # Refresh measurements grid
+                if self.measurements_main_panel and hasattr(self.measurements_main_panel, 'refresh_measurements'):
+                    self.measurements_main_panel.refresh_measurements()
+
+        except Exception as e:
+            logger.error(f"Error saving template ellipse to database: {e}", exc_info=True)
 
     def _on_zoom_in(self) -> None:
         """Handle Zoom In button click - scale up current images."""
@@ -431,6 +670,18 @@ class Measurements2DPanel(QWidget):
                 center_y = self._calculate_and_fit_ellipse(1)
                 if center_y != -1:
                     self._draw_suggestion_line_at_height(self.image2_label, center_y, self.upper_left_corner2)
+
+            # Template mode (Saïd's suggestion: 1-click placement)
+            elif self._template_mode is not None:
+                img_x, img_y = self._convert_coordinates(self.image1_label, event.x(), event.y())
+                abs_x = img_x + self.upper_left_corner1.x()
+                abs_y = img_y + self.upper_left_corner1.y()
+
+                # Place template ellipse with 1 click
+                self._place_template_ellipse(1, abs_x, abs_y)
+
+                # Draw suggestion line on opposite image
+                self._draw_suggestion_line_at_height(self.image2_label, abs_y, self.upper_left_corner2)
 
             # Circle preview mode
             elif self._draw_circle:
@@ -586,6 +837,18 @@ class Measurements2DPanel(QWidget):
                 center_y = self._calculate_and_fit_ellipse(2)
                 if center_y != -1:
                     self._draw_suggestion_line_at_height(self.image1_label, center_y, self.upper_left_corner1)
+
+            # Template mode (Saïd's suggestion: 1-click placement)
+            elif self._template_mode is not None:
+                img_x, img_y = self._convert_coordinates(self.image2_label, event.x(), event.y())
+                abs_x = img_x + self.upper_left_corner2.x()
+                abs_y = img_y + self.upper_left_corner2.y()
+
+                # Place template ellipse with 1 click
+                self._place_template_ellipse(2, abs_x, abs_y)
+
+                # Draw suggestion line on opposite image
+                self._draw_suggestion_line_at_height(self.image1_label, abs_y, self.upper_left_corner1)
 
             # Circle preview mode
             elif self._draw_circle:
