@@ -50,36 +50,58 @@ detected = manager.auto_detect_markers()
 
 ---
 
-## Planned Features
+### Vertebra Segmentation with Pre-trained Models (Implemented 2025-12-31)
 
-## 1. Automatic Vertebra Detection and Segmentation
+**Status:** COMPLETED (Integration Layer)
 
-**Priority:** HIGH
-**Estimated Impact:** Save 80% of manual annotation time
+Provides integration with state-of-the-art pre-trained deep learning models for automatic vertebra detection and segmentation.
 
-### Description
-Implement computer vision-based automatic detection and segmentation of vertebrae in EOS X-ray images using machine learning.
+**Implementation:** `spine_modeling/algorithms/vertebra_segmentation.py`
 
-### Implementation Approach
-- Use a pre-trained U-Net or Mask R-CNN model for vertebra segmentation
-- Integrate with OpenCV for image preprocessing (contrast enhancement, edge detection)
-- Provide confidence scores for each detected vertebra
-- Allow user confirmation/correction of automated detections
+**Supported Backends:**
+- **TotalSpineSeg** (Recommended): nnU-Net based model from neuropoly
+  - Auto-downloads pre-trained weights on first use
+  - Works with CT/MRI data
+  - GitHub: https://github.com/neuropoly/totalspineseg
 
-### Technical Requirements
-```python
-# New module: spine_modeling/algorithms/vertebra_detector.py
-class VertebraDetector:
-    def detect(self, eos_image: EosImage) -> List[VertebraRegion]
-    def segment(self, eos_image: EosImage) -> np.ndarray  # Segmentation mask
-    def get_landmarks(self, region: VertebraRegion) -> List[EllipsePoint]
+- **Hugging Face Model**: skaliy/spine-segmentation
+  - Alternative option using fastMONAI
+  - https://huggingface.co/skaliy/spine-segmentation
+
+**Installation:**
+```bash
+# Option 1: TotalSpineSeg (Recommended)
+pip install totalspineseg
+
+# Option 2: Hugging Face
+pip install transformers torch
 ```
 
-### User Workflow Impact
-- **Before:** User manually annotates 30+ points per vertebra
-- **After:** User clicks to confirm/adjust 3-5 key points per vertebra
+**Usage:**
+```python
+from spine_modeling.algorithms import VertebraSegmenter, segment_vertebrae
+
+# Quick segmentation
+results = segment_vertebrae("path/to/scan.nii.gz")
+for vertebra in results.vertebrae:
+    print(f"{vertebra.label}: centroid={vertebra.centroid}")
+
+# Or use the class for more control
+segmenter = VertebraSegmenter(backend=SegmentationBackend.TOTALSPINESEG)
+result = segmenter.segment(image_path, return_mask=True)
+```
+
+**Returns:**
+- Detected vertebrae with labels (C1-C7, T1-T12, L1-L5, S1-S5)
+- Centroid coordinates for each vertebra
+- Bounding boxes and confidence scores
+- Optional segmentation masks
+
+**Impact:** Enables automatic vertebra detection using clinically-validated pre-trained models instead of custom CV approaches.
 
 ---
+
+## Planned Features
 
 ## 2. Batch Processing Pipeline
 
@@ -374,18 +396,19 @@ class OpenSimModelFitter:
 
 ## Implementation Priority Matrix
 
-| Feature | Priority | Complexity | Dependencies |
-|---------|----------|------------|--------------|
-| 1. Auto Vertebra Detection | HIGH | HIGH | ML models, training data |
-| 2. Batch Processing | HIGH | MEDIUM | Async/threading |
-| 3. Measurement Templates | MEDIUM | LOW | JSON schema |
-| 4. Real-Time 3D Preview | MEDIUM | MEDIUM | VTK optimization |
-| 5. Report Generation | HIGH | MEDIUM | PDF library |
-| 6. Trend Analysis | MEDIUM | MEDIUM | Database queries |
-| 7. Multi-User Workflow | LOW | HIGH | Authentication |
-| 8. PACS Integration | HIGH | HIGH | pynetdicom, DICOM |
-| 9. AI Validation | MEDIUM | HIGH | ML models |
-| 10. OpenSim Fitting | LOW | HIGH | OpenSim API |
+| Feature | Priority | Complexity | Status |
+|---------|----------|------------|--------|
+| Template-Based Ellipse Placement | HIGH | MEDIUM | ✅ COMPLETED |
+| Vertebra Segmentation (Pre-trained) | HIGH | LOW | ✅ COMPLETED |
+| 2. Batch Processing | HIGH | MEDIUM | Planned |
+| 3. Measurement Templates | MEDIUM | LOW | Planned |
+| 4. Real-Time 3D Preview | MEDIUM | MEDIUM | Planned |
+| 5. Report Generation | HIGH | MEDIUM | Planned |
+| 6. Trend Analysis | MEDIUM | MEDIUM | Planned |
+| 7. Multi-User Workflow | LOW | HIGH | Planned |
+| 8. PACS Integration | HIGH | HIGH | Planned |
+| 9. AI Validation | MEDIUM | HIGH | Planned |
+| 10. OpenSim Fitting | LOW | HIGH | Planned |
 
 ## Quick Wins (Can be implemented in 1-2 days)
 
@@ -408,4 +431,6 @@ To contribute to any of these features:
 
 ## Changelog
 
+- **2025-12-31:** Added vertebra segmentation module with pre-trained model integration (TotalSpineSeg, HuggingFace)
+- **2025-12-31:** Implemented template-based ellipse placement and automatic marker detection
 - **2025-12-31:** Initial TODO.md created with 10 feature proposals
