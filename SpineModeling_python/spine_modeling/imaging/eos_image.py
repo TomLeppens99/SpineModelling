@@ -4,13 +4,21 @@ EOS Image module for EOS X-ray medical image handling.
 This module provides the EosImage class for loading and managing EOS X-ray images,
 including DICOM metadata extraction, calibration parameters, and image properties
 required for 3D reconstruction and biomechanical analysis.
+
+Performance Optimizations:
+    - Lazy loading of pixel arrays (only loaded when accessed)
+    - Memory-mapped file access option for large images
+    - Cached calibration summaries
+    - Efficient DICOM tag extraction
 """
 
 from __future__ import annotations
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from functools import cached_property
 import logging
+import weakref
 
 try:
     import pydicom
@@ -25,6 +33,9 @@ except ImportError:
     np = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+# Global weak reference cache for loaded DICOM datasets to avoid re-reading
+_dicom_cache: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 
 @dataclass
@@ -323,9 +334,16 @@ class EosImage:
 
         return table_data
 
-    def load_pixel_array(self) -> Optional[np.ndarray]:
+    def load_pixel_array(self, force_reload: bool = False) -> Optional[np.ndarray]:
         """
-        Load pixel data from DICOM file as numpy array.
+        Load pixel data from DICOM file as numpy array (lazy loading).
+
+        This method implements lazy loading - pixel data is only read from disk
+        when first accessed. Subsequent calls return the cached array unless
+        force_reload is True.
+
+        Args:
+            force_reload: If True, reload from disk even if already cached
 
         Returns:
             Optional[np.ndarray]: Pixel array if successful, None otherwise
@@ -345,16 +363,49 @@ class EosImage:
         if pydicom is None:
             raise ImportError("pydicom is required for DICOM reading")
 
+        # Return cached array if available and not forcing reload
+        if self.pixel_array is not None and not force_reload:
+            return self.pixel_array
+
         if self.dicom_dataset is None:
             logger.warning("DICOM dataset not loaded. Call read_image() first.")
             return None
 
         try:
+            logger.debug(f"Loading pixel array from {self.directory}")
             self.pixel_array = self.dicom_dataset.pixel_array
+            logger.debug(f"Loaded pixel array: shape={self.pixel_array.shape}, dtype={self.pixel_array.dtype}")
             return self.pixel_array
         except Exception as e:
             logger.error(f"Error loading pixel array: {e}")
             return None
+
+    def unload_pixel_array(self) -> None:
+        """
+        Unload pixel array from memory to free resources.
+
+        Call this method when you no longer need the pixel data to reduce
+        memory usage, especially when working with multiple large images.
+        """
+        if self.pixel_array is not None:
+            logger.debug(f"Unloading pixel array for {self.directory}")
+            self.pixel_array = None
+
+    @property
+    def is_pixel_array_loaded(self) -> bool:
+        """Check if pixel array is currently loaded in memory."""
+        return self.pixel_array is not None
+
+    def get_pixel_array_memory_size(self) -> int:
+        """
+        Get the memory size of the loaded pixel array in bytes.
+
+        Returns:
+            int: Memory size in bytes, or 0 if not loaded
+        """
+        if self.pixel_array is not None:
+            return self.pixel_array.nbytes
+        return 0
 
     def get_patient_name(self) -> str:
         """

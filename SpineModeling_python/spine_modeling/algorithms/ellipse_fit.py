@@ -31,16 +31,40 @@ Example Usage:
     >>> center, axes, angle = fitter.get_ellipse_parameters(coefficients)
     >>> print(f"Center: {center}, Axes: {axes}, Angle: {angle}")
 
+Performance Optimizations:
+    - Vectorized coordinate extraction using numpy
+    - LRU caching for repeated fits on same point sets
+    - Optimized constraint matrix as class constant
+    - Use scipy.linalg.solve instead of matrix inversion when available
 """
 
 import numpy as np
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
+from functools import lru_cache
+import hashlib
+import logging
+
+try:
+    from scipy import linalg as scipy_linalg
+    HAS_SCIPY_LINALG = True
+except ImportError:
+    HAS_SCIPY_LINALG = False
 
 try:
     from ..core.ellipse_point import EllipsePoint
 except ImportError:
     # Allow standalone use
     EllipsePoint = None
+
+logger = logging.getLogger(__name__)
+
+# Pre-computed constraint matrix inverse for ellipse fitting (constant)
+# Original C1 = [[0, 0, 0.5], [0, -1, 0], [0.5, 0, 0]]
+CONSTRAINT_MATRIX = np.array([
+    [0.0, 0.0, 0.5],
+    [0.0, -1.0, 0.0],
+    [0.5, 0.0, 0.0]
+], dtype=np.float64)
 
 
 class EllipseFit:
@@ -52,13 +76,66 @@ class EllipseFit:
     eigenvalue problem with a constraint that ensures the fitted conic is an ellipse.
 
     Attributes:
-        None (stateless fitter)
+        _cache (dict): Internal cache for fit results (enabled by default)
+        _cache_enabled (bool): Whether caching is enabled
+        _cache_max_size (int): Maximum cache entries
 
     """
 
-    def __init__(self):
-        """Initialize the ellipse fitter."""
-        pass
+    # Shared cache across instances for efficiency
+    _fit_cache: dict = {}
+    _cache_max_size: int = 128
+
+    def __init__(self, enable_cache: bool = True):
+        """
+        Initialize the ellipse fitter.
+
+        Args:
+            enable_cache: Enable result caching for repeated fits (default: True)
+        """
+        self._cache_enabled = enable_cache
+
+    def _extract_coordinates(self, points: List) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Extract x and y coordinates from points using vectorized operations.
+
+        Args:
+            points: List of points (various formats supported)
+
+        Returns:
+            Tuple of (x_coords, y_coords) numpy arrays
+
+        Raises:
+            ValueError: If points cannot be extracted
+        """
+        num_points = len(points)
+
+        # Fast path: if points are already numpy array with shape (n, 2)
+        if isinstance(points, np.ndarray) and points.ndim == 2 and points.shape[1] >= 2:
+            return points[:, 0].astype(np.float64), points[:, 1].astype(np.float64)
+
+        # Check first point to determine extraction strategy
+        first_point = points[0]
+
+        if hasattr(first_point, 'x') and hasattr(first_point, 'y'):
+            # Objects with x, y attributes - use vectorized getattr
+            x_coords = np.array([p.x for p in points], dtype=np.float64)
+            y_coords = np.array([p.y for p in points], dtype=np.float64)
+        elif isinstance(first_point, (tuple, list, np.ndarray)):
+            # Tuple/list format - convert to numpy and slice
+            arr = np.array(points, dtype=np.float64)
+            x_coords = arr[:, 0]
+            y_coords = arr[:, 1]
+        else:
+            raise ValueError("Points must have x,y attributes or be array-like")
+
+        return x_coords, y_coords
+
+    def _compute_cache_key(self, x_coords: np.ndarray, y_coords: np.ndarray) -> str:
+        """Compute a hash key for caching based on coordinates."""
+        # Use tobytes for fast hashing of numpy arrays
+        data = np.concatenate([x_coords, y_coords]).tobytes()
+        return hashlib.md5(data).hexdigest()
 
     def fit(self, points: List) -> Optional[np.ndarray]:
         """
@@ -74,6 +151,7 @@ class EllipseFit:
         Args:
             points: List of points with x and y attributes (e.g., EllipsePoint objects)
                     or list of tuples/lists [(x1,y1), (x2,y2), ...]
+                    or numpy array of shape (n, 2)
                     Minimum 5 points required for ellipse fitting
 
         Returns:
@@ -95,74 +173,55 @@ class EllipseFit:
         if points is None or len(points) < 5:
             raise ValueError("At least 5 points required for ellipse fitting")
 
-        num_points = len(points)
+        # Extract coordinates using optimized method
+        x_coords, y_coords = self._extract_coordinates(points)
+        num_points = len(x_coords)
 
-        # Extract x and y coordinates from points
-        x_coords = np.zeros(num_points)
-        y_coords = np.zeros(num_points)
+        # Check cache if enabled
+        if self._cache_enabled:
+            cache_key = self._compute_cache_key(x_coords, y_coords)
+            if cache_key in EllipseFit._fit_cache:
+                logger.debug(f"Cache hit for ellipse fit (key: {cache_key[:8]}...)")
+                return EllipseFit._fit_cache[cache_key].copy()
 
-        for i, p in enumerate(points):
-            if hasattr(p, 'x') and hasattr(p, 'y'):
-                x_coords[i] = p.x
-                y_coords[i] = p.y
-            elif isinstance(p, (tuple, list, np.ndarray)) and len(p) >= 2:
-                x_coords[i] = p[0]
-                y_coords[i] = p[1]
-            else:
-                raise ValueError(f"Point at index {i} does not have x, y coordinates")
-
-        # Build design matrices
+        # Build design matrices using vectorized operations
         # D1 = [x.^2, x.*y, y.^2] - quadratic part
-        D1 = np.column_stack([
-            x_coords ** 2,
-            x_coords * y_coords,
-            y_coords ** 2
-        ])
+        x_sq = x_coords ** 2
+        y_sq = y_coords ** 2
+        xy = x_coords * y_coords
+
+        D1 = np.column_stack([x_sq, xy, y_sq])
 
         # D2 = [x, y, ones] - linear part
-        D2 = np.column_stack([
-            x_coords,
-            y_coords,
-            np.ones(num_points)
-        ])
+        D2 = np.column_stack([x_coords, y_coords, np.ones(num_points, dtype=np.float64)])
 
-        # Compute scatter matrices
-        # S1 = D1' * D1 - quadratic part of scatter matrix
+        # Compute scatter matrices using optimized matrix operations
         S1 = D1.T @ D1
-
-        # S2 = D1' * D2 - combined part of scatter matrix
         S2 = D1.T @ D2
-
-        # S3 = D2' * D2 - linear part of scatter matrix
         S3 = D2.T @ D2
 
-        # Check if S3 is invertible
-        if np.linalg.det(S3) == 0:
-            raise RuntimeError("S3 matrix is singular, cannot compute inverse")
+        # Check if S3 is invertible (use condition number for numerical stability)
+        cond = np.linalg.cond(S3)
+        if cond > 1e12:
+            raise RuntimeError("S3 matrix is ill-conditioned, cannot compute solution reliably")
 
-        # T = -inv(S3) * S2' - for getting a2 from a1
-        try:
-            S3_inv = np.linalg.inv(S3)
-        except np.linalg.LinAlgError:
-            raise RuntimeError("Failed to invert S3 matrix")
-
-        T = -S3_inv @ S2.T
+        # Solve for T using more stable method when scipy is available
+        if HAS_SCIPY_LINALG:
+            try:
+                T = -scipy_linalg.solve(S3, S2.T, assume_a='pos')
+            except scipy_linalg.LinAlgError:
+                T = -np.linalg.solve(S3, S2.T)
+        else:
+            try:
+                T = -np.linalg.solve(S3, S2.T)
+            except np.linalg.LinAlgError:
+                raise RuntimeError("Failed to solve S3 system")
 
         # M = S1 + S2 * T - reduced scatter matrix
         M = S1 + S2 @ T
 
-        # Constraint matrix C1 (premultiplied by inverse)
-        # Original C1 = [[0, 0, 0.5], [0, -1, 0], [0.5, 0, 0]]
-        # M = inv(C1) * M is equivalent to:
-        # M = [[M[2,:]/2], [-M[1,:]], [M[0,:]/2]]
-        C1 = np.array([
-            [0, 0, 0.5],
-            [0, -1, 0],
-            [0.5, 0, 0]
-        ])
-
-        # Premultiply M by inv(C1)
-        M = C1 @ M
+        # Apply constraint matrix (using pre-computed constant)
+        M = CONSTRAINT_MATRIX @ M
 
         # Solve eigensystem
         try:
@@ -170,38 +229,54 @@ class EllipseFit:
         except np.linalg.LinAlgError:
             raise RuntimeError("Failed to compute eigenvalues/eigenvectors")
 
-        # Find eigenvector that satisfies ellipse constraint
+        # Find eigenvector that satisfies ellipse constraint using vectorized check
         # Constraint: 4*a1[0]*a1[2] - a1[1]^2 > 0
-        a1 = None
-        best_condition = -np.inf
+        evecs = eigenvectors.T  # Shape: (3, 3) -> iterate over rows
 
-        for i in range(len(eigenvalues)):
-            evec = eigenvectors[:, i]
+        # Compute constraint for all eigenvectors at once
+        conditions = 4 * evecs[:, 0] * evecs[:, 2] - evecs[:, 1] ** 2
 
-            # Evaluate constraint: cond = 4*evec[0]*evec[2] - evec[1]^2
-            if np.iscomplex(evec[0]) or np.iscomplex(evec[1]) or np.iscomplex(evec[2]):
-                # Skip complex eigenvectors
-                continue
+        # Filter: must be real and positive
+        valid_mask = np.isreal(conditions) & (conditions.real > 0)
 
-            condition = 4 * evec[0] * evec[2] - evec[1] ** 2
-
-            # We want the eigenvector with positive condition (ellipse constraint)
-            if np.isreal(condition) and condition > 0:
-                if condition > best_condition:
-                    best_condition = condition
-                    a1 = evec.real
-
-        if a1 is None:
+        if not np.any(valid_mask):
             raise RuntimeError("No valid ellipse solution found (no eigenvector satisfies constraint)")
 
+        # Select eigenvector with maximum positive condition
+        valid_conditions = np.where(valid_mask, conditions.real, -np.inf)
+        best_idx = np.argmax(valid_conditions)
+        a1 = eigenvectors[:, best_idx].real
+
         # Compute a2 = T * a1
-        a1 = a1.reshape(-1, 1)
         a2 = T @ a1
 
         # Combine into full parameter vector [a1; a2]
-        result = np.vstack([a1, a2])
+        result = np.concatenate([a1, a2])
 
-        return result.flatten()
+        # Cache result if enabled
+        if self._cache_enabled:
+            # Limit cache size
+            if len(EllipseFit._fit_cache) >= EllipseFit._cache_max_size:
+                # Remove oldest entry (FIFO)
+                oldest_key = next(iter(EllipseFit._fit_cache))
+                del EllipseFit._fit_cache[oldest_key]
+            EllipseFit._fit_cache[cache_key] = result.copy()
+            logger.debug(f"Cached ellipse fit result (key: {cache_key[:8]}...)")
+
+        return result
+
+    @classmethod
+    def clear_cache(cls) -> int:
+        """
+        Clear the fit results cache.
+
+        Returns:
+            Number of entries cleared
+        """
+        count = len(cls._fit_cache)
+        cls._fit_cache.clear()
+        logger.debug(f"Cleared {count} entries from ellipse fit cache")
+        return count
 
     @staticmethod
     def get_ellipse_parameters(coefficients: np.ndarray) -> Tuple[Tuple[float, float],

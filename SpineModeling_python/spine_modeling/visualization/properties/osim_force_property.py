@@ -94,7 +94,8 @@ class OsimForceProperty:
                 self._tendon_slack_length = force.getTendonSlackLength()
             if hasattr(force, 'getPennationAngleAtOptimalFiberLength'):
                 self._pennation_angle = force.getPennationAngleAtOptimalFiberLength()
-        except:
+        except (AttributeError, RuntimeError) as e:
+            # Some force types don't support these muscle-specific properties
             pass
         
         # Get geometry path

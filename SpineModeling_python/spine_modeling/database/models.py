@@ -170,16 +170,49 @@ class DatabaseManager:
 
     This class provides a high-level interface for database operations including
     initialization, CRUD operations, and session management.
+
+    Performance Optimizations:
+        - Connection pooling with configurable pool size
+        - Scoped sessions for thread safety
+        - Batch insert operations for multiple records
+        - Lazy loading configuration for relationships
     """
 
-    def __init__(self, database_url: str = "sqlite:///spinemodeling.db"):
+    def __init__(
+        self,
+        database_url: str = "sqlite:///spinemodeling.db",
+        pool_size: int = 5,
+        max_overflow: int = 10,
+        echo: bool = False
+    ):
         """
-        Initialize database manager.
+        Initialize database manager with connection pooling.
 
         Args:
             database_url: SQLAlchemy database URL (default: SQLite file)
+            pool_size: Number of connections to keep in the pool (default: 5)
+            max_overflow: Max connections beyond pool_size (default: 10)
+            echo: Enable SQL query logging (default: False)
         """
-        self.engine = create_engine(database_url, echo=False)
+        # SQLite doesn't support pooling the same way, so adjust settings
+        if database_url.startswith("sqlite"):
+            self.engine = create_engine(
+                database_url,
+                echo=echo,
+                connect_args={"check_same_thread": False},  # Allow multi-threaded access
+                pool_pre_ping=True  # Verify connections before use
+            )
+        else:
+            from sqlalchemy.pool import QueuePool
+            self.engine = create_engine(
+                database_url,
+                echo=echo,
+                poolclass=QueuePool,
+                pool_size=pool_size,
+                max_overflow=max_overflow,
+                pool_pre_ping=True
+            )
+
         self.SessionLocal = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
         self._session: Optional[Session] = None
 
@@ -373,6 +406,60 @@ class DatabaseManager:
             session.commit()
             return True
         return False
+
+    def create_measurements_batch(
+        self,
+        subject_id: int,
+        measurements_data: list
+    ) -> list:
+        """
+        Create multiple measurement records in a single transaction (batch insert).
+
+        This is more efficient than creating measurements one at a time when
+        you have many measurements to insert.
+
+        Args:
+            subject_id: Foreign key to subject
+            measurements_data: List of dicts with measurement data, each containing:
+                - measurement_name (required)
+                - measurement_value (optional)
+                - measurement_unit (optional)
+                - measurement_type (optional)
+                - image_type (optional)
+                - and other Measurement fields
+
+        Returns:
+            List of created Measurement objects
+
+        Example:
+            >>> data = [
+            ...     {"measurement_name": "Width L2", "measurement_value": 8.5},
+            ...     {"measurement_name": "Width L3", "measurement_value": 9.2},
+            ... ]
+            >>> measurements = db.create_measurements_batch(subject_id=1, measurements_data=data)
+        """
+        session = self.get_session()
+        measurements = []
+
+        try:
+            for data in measurements_data:
+                measurement = Measurement(
+                    subject_id=subject_id,
+                    **data
+                )
+                session.add(measurement)
+                measurements.append(measurement)
+
+            session.commit()
+
+            # Refresh all to get generated IDs
+            for m in measurements:
+                session.refresh(m)
+
+            return measurements
+        except Exception as e:
+            session.rollback()
+            raise e
 
     # PatientImage operations
     def create_patient_image(

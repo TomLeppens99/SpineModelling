@@ -9,6 +9,9 @@ will be refined during testing and integration phases.
 
 from typing import List, Optional, Dict
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     import vtk
@@ -789,12 +792,14 @@ class SimModelVisualization:
     @staticmethod
     def radian_to_degree(angle: float) -> float:
         """Convert angle from radians to degrees."""
-        return angle * 180.0 / 3.14159265358979323846
+        import numpy as np
+        return np.degrees(angle)
 
     @staticmethod
     def degree_to_radian(angle: float) -> float:
         """Convert angle from degrees to radians."""
-        return angle * 3.14159265358979323846 / 180.0
+        import numpy as np
+        return np.radians(angle)
 
     def model_to_treeview(self, tree_widget: object) -> None:
         """
@@ -865,8 +870,9 @@ class SimModelVisualization:
                     body_prop = self.get_specified_body_property_from_name(body_name)
                     if body_prop:
                         body_item.setData(0, 32, body_prop)  # Qt.UserRole = 32
-        except:
-            pass
+        except (AttributeError, RuntimeError) as e:
+            # Model may not have body groups defined
+            logger.debug(f"Could not populate body groups: {e}")
 
         # Add "All" group for bodies
         all_bodies_item = QTreeWidgetItem(bodies_item, ["All"])
@@ -896,8 +902,9 @@ class SimModelVisualization:
                     force_prop = self.get_specified_force_property_from_name(force_name)
                     if force_prop:
                         force_item.setData(0, 32, force_prop)
-        except:
-            pass
+        except (AttributeError, RuntimeError) as e:
+            # Model may not have force groups defined
+            logger.debug(f"Could not populate force groups: {e}")
 
         # Add "All" group for forces
         all_forces_item = QTreeWidgetItem(forces_item, ["All"])
